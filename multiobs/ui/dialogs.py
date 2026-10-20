@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog, QDia
                                QKeySequenceEdit, QLabel, QLineEdit, QListWidget, QListWidgetItem,
                                QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget)
 
-from .. import naming, obsfiles, paths, theme, vcam
+from .. import applog, naming, obsfiles, paths, theme, vcam
 from ..instance_config import InstanceDef
 from .tasks import run_task
 from .widgets import SwatchButtonPainter
@@ -488,9 +488,10 @@ class SettingsDialog(QDialog):
         # De nouveau gérées par Multi OBS : réinstallées à l'allumage et si elles disparaissent.
         self.manager.settings["vcam_scope"] = vcam.SCOPE_USER
         self.manager.save()
+        applog.log(f"Paramètres : « Installer / réparer » les caméras virtuelles {indices}")
         watch = getattr(self.main, "_vcam_watch", None)
         if watch is not None:
-            watch.start()
+            watch.start(60_000)
         colors = {i.vcam: i.color for i in self.manager.instances}
         run_task(self, "Caméras virtuelles", lambda _p: vcam.install(indices, vcam.SCOPE_USER, colors),
                  on_done=done)
@@ -502,6 +503,7 @@ class SettingsDialog(QDialog):
         if r == QMessageBox.StandardButton.Yes:
             self.manager.settings["vcam_scope"] = "none"   # sinon réinstallées au prochain allumage
             self.manager.save()
+            applog.log("Paramètres : « Désinstaller » les caméras virtuelles")
             vcam.uninstall(list(range(1, obsfiles.MAX_VCAM + 1)))
             self._refresh()
 

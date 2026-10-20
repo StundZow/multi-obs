@@ -175,5 +175,14 @@ QComboBox#typeCombo {{ padding: 2px 6px; min-height: 16px; font-size: 9pt; }}
 QFrame#namingBar {{ background: {y['grey7']}; border-bottom: 1px solid {y['grey8']}; }}
 QLabel#namingPreview {{ color: {y['grey1']}; font-size: 8.5pt; }}
 QFrame#emptyState {{ background: {y['grey6']}; border: 1px dashed {y['grey3']}; border-radius: 10px; }}
+QLabel#allMinimized {{ color: {y['white5']}; padding: 40px; }}
+QFrame#miniBar {{ background: {y['grey7']}; border-top: 1px solid {y['grey8']}; }}
+QLabel#miniLabel {{ color: {y['grey1']}; font-size: 8.5pt; }}
+QLabel#miniName {{ font-weight: 600; }}
+QLabel#miniTag {{ color: {y['white4']}; font-size: 8pt; border: 1px solid {y['grey3']}; border-radius: 4px; padding: 0 4px; }}
+QLabel#miniAlert {{ color: {y['yellow2']}; font-weight: 700; }}
+QToolButton#miniRestore {{ background: transparent; border: none; border-radius: 4px; padding: 3px 7px;
+                          color: {y['white4']}; font-weight: 600; }}
+QToolButton#miniRestore:hover {{ background: rgba(255, 255, 255, 0.08); color: {y['white1']}; }}
 QPushButton#swatch {{ border-radius: 13px; min-width: 26px; max-width: 26px; min-height: 26px; max-height: 26px; padding: 0; }}
 """

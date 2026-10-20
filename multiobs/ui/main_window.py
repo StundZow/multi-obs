@@ -5,18 +5,19 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFrame, QGrid
                                QInputDialog, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton,
                                QScrollArea, QSizePolicy, QToolButton, QVBoxLayout, QWidget)
 
-from .. import APP_NAME, APP_VERSION, obsfiles, paths, vcam
+from .. import APP_NAME, APP_VERSION, applog, obsfiles, paths, vcam
 from ..hotkeys import GlobalHotkeys
 from ..manager import AUTOSAVE_SLUG, Manager
 from ..preview import STATE_ACTIVE, STATE_AWAY, STATE_BACKGROUND
 from ..syswatch import SystemEvents
-from .card import InstanceCard
+from .card import InstanceCard, MiniChip
 from .dialogs import InstanceDialog, SettingsDialog
 from .tasks import Task, run_task
-from .widgets import icon
+from .widgets import FlowLayout, icon
 
 CARD_MIN_W = 440
 COMPACT_BELOW = 1060
+VCAM_CHECK_MS = 60_000   # vérification des caméras virtuelles dans Windows
 
 
 def _vsep() -> QFrame:
@@ -30,6 +31,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.manager = manager
         self.cards: dict[str, InstanceCard] = {}
+        self.mini_chips: dict[str, MiniChip] = {}
         self._columns = 0
         self._compact = False
         self.setWindowTitle(APP_NAME)
@@ -54,6 +56,17 @@ class MainWindow(QMainWindow):
         self.scroll.setWidget(self.container)
         root.addWidget(self.scroll, 1)
         self.empty = self._build_empty_state()
+        self.all_minimized = QLabel("Toutes les instances sont réduites : « Remettre » dans la barre du bas.",
+                                    objectName="allMinimized")
+        self.all_minimized.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Barre du bas : instances réduites (ex. l'OBS du live quand on ne live pas).
+        self.mini_bar = QFrame(objectName="miniBar")
+        self.mini_flow = FlowLayout(self.mini_bar, spacing=8)
+        self.mini_flow.setContentsMargins(14, 6, 14, 6)
+        self.mini_flow.addWidget(QLabel("Instances réduites", objectName="miniLabel"))
+        self.mini_bar.hide()
+        root.addWidget(self.mini_bar)
 
         self.status_obs = QLabel()
         self.status_vcam = QLabel()
@@ -109,7 +122,8 @@ class MainWindow(QMainWindow):
         lay.addWidget(title)
         lay.addWidget(_vsep())
 
-        self.launch_all_btn = self._btn("Tout allumer", "power.svg", "Allumer toutes les instances", self.launch_all)
+        self.launch_all_btn = self._btn("Tout allumer", "power.svg",
+                                        "Allumer toutes les instances (sauf celles réduites en bas)", self.launch_all)
         self.close_all_btn = self._btn("Tout éteindre", "close.svg", "Éteindre toutes les instances", self.close_all)
         lay.addWidget(self.launch_all_btn)
         lay.addWidget(self.close_all_btn)
@@ -230,10 +244,11 @@ class MainWindow(QMainWindow):
                 card.launchRequested.connect(lambda i: self.launch([i]))
                 card.editRequested.connect(self.edit_instance)
                 card.deleteRequested.connect(self.delete_instance)
-                card.moveRequested.connect(self.manager.move_instance)
+                card.moveRequested.connect(self._move_card)
                 card.includeChanged.connect(self._set_include)
                 card.recTypeChanged.connect(self.manager.set_rec_type)
                 card.previewHiddenChanged.connect(self._set_preview_hidden)
+                card.minimizeRequested.connect(lambda i: self._set_card_minimized(i, True))
                 card.filename_preview = (lambda i=inst.id: self.manager.filename_preview(
                     next(x for x in self.manager.instances if x.id == i)))
                 self.cards[inst.id] = card
@@ -241,33 +256,74 @@ class MainWindow(QMainWindow):
                 self.cards[inst.id].apply_definition()
         self._columns = 0
         self._relayout()
+        self._refresh_mini_bar()
         self.refresh_status()
         self._schedule_context()
 
     def _relayout(self) -> None:
+        shown = [i for i in self.manager.instances if i.id in self.cards and not i.card_minimized]
         avail = self.scroll.viewport().width() - 28
-        cols = max(1, min(len(self.cards) or 1, (avail + 12) // (CARD_MIN_W + 12)))
-        if cols == self._columns and self.grid.count() == max(1, len(self.cards)):
+        cols = max(1, min(len(shown) or 1, (avail + 12) // (CARD_MIN_W + 12)))
+        if cols == self._columns and self.grid.count() == max(1, len(shown)):
             return
         self._columns = cols
         while self.grid.count():
-            item = self.grid.takeAt(0)
-            if item.widget():
-                item.widget().setParent(None) if item.widget() is self.empty else None
+            w = self.grid.takeAt(0).widget()
+            if w is self.empty or w is self.all_minimized:
+                w.setParent(None)
         for c in range(self.grid.columnCount()):
             self.grid.setColumnStretch(c, 0)
-        if not self.cards:
-            self.grid.addWidget(self.empty, 0, 0, Qt.AlignmentFlag.AlignTop)
+        for r in range(self.grid.rowCount()):
+            self.grid.setRowStretch(r, 0)
+        for inst in self.manager.instances:   # réduites : rangées dans la barre du bas, aperçu arrêté
+            if inst.card_minimized and inst.id in self.cards:
+                self.cards[inst.id].hide()
+        if not shown:
+            self.grid.addWidget(self.all_minimized if self.cards else self.empty, 0, 0, Qt.AlignmentFlag.AlignTop)
             self.grid.setColumnStretch(0, 1)
             self.grid.setRowStretch(1, 1)
             return
-        self.grid.setRowStretch(1, 0)
-        for k, inst in enumerate(self.manager.instances):
-            self.grid.addWidget(self.cards[inst.id], k // cols, k % cols, Qt.AlignmentFlag.AlignTop)
+        for k, inst in enumerate(shown):
+            card = self.cards[inst.id]
+            self.grid.addWidget(card, k // cols, k % cols, Qt.AlignmentFlag.AlignTop)
+            card.show()
         for c in range(cols):
             self.grid.setColumnStretch(c, 1)
-        rows = (len(self.cards) + cols - 1) // cols
+        rows = (len(shown) + cols - 1) // cols
         self.grid.setRowStretch(rows, 1)
+
+    def _refresh_mini_bar(self) -> None:
+        """Une pastille par instance réduite, dans l'ordre des instances."""
+        for chip in self.mini_chips.values():
+            self.mini_flow.removeWidget(chip)
+            chip.setParent(None)
+            chip.deleteLater()
+        self.mini_chips = {}
+        for inst in self.manager.instances:
+            if inst.card_minimized and inst.id in self.manager.controllers:
+                chip = MiniChip(self.manager.controller(inst.id))
+                chip.restoreRequested.connect(lambda i: self._set_card_minimized(i, False))
+                self.mini_flow.addWidget(chip)
+                self.mini_chips[inst.id] = chip
+        self.mini_bar.setVisible(bool(self.mini_chips))
+
+    def _set_card_minimized(self, inst_id: str, minimized: bool) -> None:
+        self.manager.set_card_minimized(inst_id, minimized)
+        self._columns = 0
+        self._relayout()
+        self._refresh_mini_bar()
+        self.refresh_global()
+        self._schedule_context()
+
+    def _move_card(self, inst_id: str, delta: int) -> None:
+        """Déplacer à gauche / à droite parmi les cartes affichées (les réduites ne comptent pas)."""
+        insts = self.manager.instances
+        shown = [i.id for i in insts if not i.card_minimized or i.id == inst_id]
+        k = shown.index(inst_id) + delta
+        if 0 <= k < len(shown):
+            idx = next(n for n, i in enumerate(insts) if i.id == inst_id)
+            target = next(n for n, i in enumerate(insts) if i.id == shown[k])
+            self.manager.move_instance(inst_id, target - idx)
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
@@ -359,7 +415,8 @@ class MainWindow(QMainWindow):
                  lambda p: self.manager.prepare(insts, p, import_from), on_done=done)
 
     def launch_all(self) -> None:
-        self.launch([i.id for i in self.manager.instances])
+        """Allume les instances affichées : les réduites (ex. l'OBS du live) restent comme elles sont."""
+        self.launch([i.id for i in self.manager.instances if not i.card_minimized])
 
     def close_all(self) -> None:
         recording = [c.inst.name for c in self.manager.controllers.values() if c.recording or c.streaming]
@@ -421,7 +478,8 @@ class MainWindow(QMainWindow):
         self._set_prop(self.pause_all_btn, "active", "pause" if all_paused else "")
         running = self.manager.any_running()
         self.close_all_btn.setEnabled(running)
-        self.launch_all_btn.setEnabled(any(not c.running for c in self.manager.controllers.values()))
+        self.launch_all_btn.setEnabled(any(not self.manager.controller(i.id).running
+                                           for i in self.manager.instances if not i.card_minimized))
         self.preset_open_btn.setEnabled(self.preset_combo.count() > 0)
         self.preset_del_btn.setEnabled(self.preset_combo.count() > 0)
 
@@ -610,22 +668,28 @@ class MainWindow(QMainWindow):
     def watch_vcams(self) -> None:
         """Remet les caméras virtuelles qui ont disparu de Windows : au démarrage, puis chaque minute
         (sinon elles ne revenaient qu'au prochain allumage des instances)."""
-        self._vcam_watch = QTimer(self, interval=60_000, timeout=self.repair_vcams)
+        self._vcam_watch = QTimer(self, interval=VCAM_CHECK_MS, timeout=self.repair_vcams)
         self._vcam_watch.start()
         QTimer.singleShot(1500, self.repair_vcams)
 
     def repair_vcams(self) -> None:
+        self.refresh_status()   # « Caméras virtuelles : x/y » reste juste même sans réparation
         if self.manager.settings.get("vcam_scope") != vcam.SCOPE_USER or obsfiles.runtime_signature() is None \
                 or getattr(self, "_vcam_task", None) is not None:
             return
         colors = {i.vcam: i.color for i in self.manager.instances if not vcam.is_registered(i.vcam)}
         if not colors:
             return
+        applog.log(f"Caméras virtuelles absentes de Windows : {sorted(colors)} — réinstallation")
 
         def done(failed):
             self._vcam_task = None
-            if failed and hasattr(self, "_vcam_watch"):
-                self._vcam_watch.stop()   # échec (droits, antivirus…) : on ne réessaie pas en boucle
+            watch = getattr(self, "_vcam_watch", None)
+            if watch is not None:
+                # Échec (droits, antivirus…) : on réessaie de moins en moins souvent, sans abandonner.
+                watch.setInterval(min(watch.interval() * 2, 16 * VCAM_CHECK_MS) if failed else VCAM_CHECK_MS)
+            applog.log(f"  échec pour {failed}, nouvel essai dans {watch.interval() // 60000 if watch else '?'} min"
+                       if failed else "  réinstallées")
             self.refresh_status()
 
         task = Task(lambda _p: vcam.install(sorted(colors), vcam.SCOPE_USER, colors), self)

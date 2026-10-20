@@ -3,9 +3,9 @@ import math
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QRectF, QSize, Qt, Signal
+from PySide6.QtCore import QPoint, QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QImage, QPainter, QPainterPath, QPen, QPixmap
-from PySide6.QtWidgets import QSizePolicy, QWidget
+from PySide6.QtWidgets import QLayout, QSizePolicy, QWidget
 
 from .. import paths
 from ..theme import YAMI
@@ -360,3 +360,74 @@ class DiskBar(QWidget):
             p.drawText(QRectF(0, 24, w, 14), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                        fm.elidedText("Enregistre dans " + target, Qt.TextElideMode.ElideMiddle, w))
         p.end()
+
+
+class FlowLayout(QLayout):
+    """Éléments alignés à la suite, qui passent à la ligne quand la place manque."""
+
+    def __init__(self, parent=None, spacing: int = 6):
+        super().__init__(parent)
+        self._items = []
+        self.setSpacing(spacing)
+
+    def addItem(self, item) -> None:
+        self._items.append(item)
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def itemAt(self, i: int):
+        return self._items[i] if 0 <= i < len(self._items) else None
+
+    def takeAt(self, i: int):
+        return self._items.pop(i) if 0 <= i < len(self._items) else None
+
+    def expandingDirections(self):
+        return Qt.Orientation(0)
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        return self._arrange(QRect(0, 0, width, 0), apply=False)
+
+    def setGeometry(self, rect: QRect) -> None:
+        super().setGeometry(rect)
+        self._arrange(rect, apply=True)
+
+    def sizeHint(self) -> QSize:
+        return self.minimumSize()
+
+    def minimumSize(self) -> QSize:
+        size = QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        m = self.contentsMargins()
+        return size + QSize(m.left() + m.right(), m.top() + m.bottom())
+
+    def _arrange(self, rect: QRect, apply: bool) -> int:
+        m = self.contentsMargins()
+        area = rect.adjusted(m.left(), m.top(), -m.right(), -m.bottom())
+        lines, line, x = [], [], area.x()
+        for item in self._items:
+            if item.widget() and item.widget().isHidden():
+                continue
+            width = item.sizeHint().width()
+            if line and x + width > area.right() + 1:
+                lines.append(line)
+                line, x = [], area.x()
+            line.append(item)
+            x += width + self.spacing()
+        if line:
+            lines.append(line)
+        y = area.y()
+        for line in lines:
+            line_h = max(it.sizeHint().height() for it in line)
+            if apply:
+                x = area.x()
+                for it in line:   # centrés verticalement sur la ligne
+                    hint = it.sizeHint()
+                    it.setGeometry(QRect(QPoint(x, y + (line_h - hint.height()) // 2), hint))
+                    x += hint.width() + self.spacing()
+            y += line_h + self.spacing()
+        return (y - self.spacing() if lines else y) - rect.y() + m.bottom()

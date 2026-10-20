@@ -17,6 +17,21 @@ def _restyle(w: QWidget) -> None:
     w.style().polish(w)
 
 
+def _status_chip(c: InstanceController) -> tuple[str, str]:
+    """Texte et état (style QLabel#chip) de la pastille d'état d'une instance."""
+    if c.status == "stopped":
+        return "Éteinte", ""
+    if c.status == "starting":
+        return ("Extinction…" if c.closing else "Démarrage…"), "busy"
+    if c.recording and c.paused:
+        return "PAUSE", "pause"
+    if c.recording:
+        return "REC", "rec"
+    if c.streaming:
+        return "LIVE", "live"
+    return "Actif", "ready"
+
+
 class InstanceCard(QFrame):
     launchRequested = Signal(str)
     editRequested = Signal(str)
@@ -25,6 +40,7 @@ class InstanceCard(QFrame):
     includeChanged = Signal(str, bool)
     recTypeChanged = Signal(str, str)
     previewHiddenChanged = Signal(str, bool)
+    minimizeRequested = Signal(str)
 
     def __init__(self, ctrl: InstanceController, parent=None):
         super().__init__(parent)
@@ -63,12 +79,20 @@ class InstanceCard(QFrame):
         self.menu_btn.setIcon(icon("dots-vert.svg"))
         self.menu_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.menu_btn.setToolTip("Plus d'options")
+        self.min_btn = QToolButton(objectName="flatIcon")
+        self.min_btn.setIcon(icon("minimize.svg"))
+        self.min_btn.setIconSize(QSize(16, 16))
+        self.min_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.min_btn.setToolTip("Réduire : ranger cette instance dans la barre du bas\n"
+                                "(elle continue de tourner si elle est allumée)")
+        self.min_btn.clicked.connect(lambda: self.minimizeRequested.emit(self.ctrl.inst.id))
         head.addWidget(self.dot)
         head.addWidget(self.name)
         head.addWidget(self.chip)
         head.addStretch(1)
         head.addWidget(self.vcam_btn)
         head.addWidget(self.type_combo)
+        head.addWidget(self.min_btn)
         head.addWidget(self.menu_btn)
         body.addLayout(head)
         self._build_menu()
@@ -162,6 +186,7 @@ class InstanceCard(QFrame):
         m.addSeparator()
         m.addAction("Déplacer à gauche", lambda: self.moveRequested.emit(self.ctrl.inst.id, -1))
         m.addAction("Déplacer à droite", lambda: self.moveRequested.emit(self.ctrl.inst.id, 1))
+        m.addAction("Réduire dans la barre du bas", lambda: self.minimizeRequested.emit(self.ctrl.inst.id))
         m.addSeparator()
         self.act_kill = m.addAction("Forcer l'arrêt (si OBS ne répond plus)", self.ctrl.kill)
         m.addAction("Supprimer l'instance…", lambda: self.deleteRequested.emit(self.ctrl.inst.id))
@@ -270,23 +295,14 @@ class InstanceCard(QFrame):
         connected = c.connected
         fps_setting = int(c.settings.get("preview_fps", 60)) if c.settings else 60
 
+        self._set_chip(*_status_chip(c))
         if status == "stopped":
-            self._set_chip("Éteinte", "")
             self.preview.placeholder = "Instance éteinte — double-clic pour l'allumer"
         elif status == "starting":
-            self._set_chip("Extinction…" if c.closing else "Démarrage…", "busy")
             self.preview.placeholder = "Connexion à OBS…"
         else:
             self.preview.placeholder = ("Aperçu désactivé (Paramètres)" if fps_setting <= 0
                                         else "En attente de l'image…")
-            if c.recording and c.paused:
-                self._set_chip("PAUSE", "pause")
-            elif c.recording:
-                self._set_chip("REC", "rec")
-            elif c.streaming:
-                self._set_chip("LIVE", "live")
-            else:
-                self._set_chip("Actif", "ready")
 
         badges = []
         if c.recording:
@@ -357,3 +373,56 @@ class InstanceCard(QFrame):
         if c.connected and not rows:
             empty = "Aucune source audio active"
         self.meters.set_rows(rows, empty)
+
+
+class MiniChip(QFrame):
+    """Instance réduite : pastille de la barre du bas (état, alertes) avec « Remettre »."""
+    restoreRequested = Signal(str)
+
+    def __init__(self, ctrl: InstanceController, parent=None):
+        super().__init__(parent)
+        self.ctrl = ctrl
+        self.setObjectName("miniChip")
+        col = theme.accent(ctrl.inst.color, 2)
+        self.setStyleSheet(f"QFrame#miniChip {{ background: {theme.mix(YAMI['grey6'], col, 0.10)}; "
+                           f"border: 1px solid {theme.mix(YAMI['grey5'], col, 0.35)}; border-radius: 6px; }}")
+        self.setToolTip("Double-clic pour remettre l'instance en haut")
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(9, 3, 3, 3)
+        lay.setSpacing(7)
+        dot = QLabel()
+        dot.setPixmap(color_dot(col, 10))
+        name = QLabel(ctrl.inst.name, objectName="miniName")
+        self.state = QLabel(objectName="chip")
+        self.vcam = QLabel("VCam", objectName="miniTag")
+        self.vcam.setToolTip(f"Caméra virtuelle « OBS Virtual Camera {ctrl.inst.vcam} » allumée")
+        self.alert = QLabel("⚠", objectName="miniAlert")
+        restore = QToolButton(objectName="miniRestore")
+        restore.setIcon(icon("up.svg"))
+        restore.setIconSize(QSize(10, 10))
+        restore.setText("Remettre")
+        restore.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        restore.setCursor(Qt.CursorShape.PointingHandCursor)
+        restore.setToolTip("Remettre cette instance en haut, parmi les autres")
+        restore.clicked.connect(lambda: self.restoreRequested.emit(self.ctrl.inst.id))
+        for w in (dot, name, self.state, self.vcam, self.alert, restore):
+            lay.addWidget(w)
+        ctrl.changed.connect(self.refresh)
+        self.refresh()
+
+    def mouseDoubleClickEvent(self, e) -> None:
+        self.restoreRequested.emit(self.ctrl.inst.id)
+
+    def refresh(self) -> None:
+        c = self.ctrl
+        text, state = _status_chip(c)
+        if c.recording and c.rec_time:   # pas d'aperçu ici : la durée est dans la pastille
+            text += "  " + c.rec_time
+        self.state.setText(text)
+        if self.state.property("state") != state:
+            self.state.setProperty("state", state)
+            _restyle(self.state)
+        self.vcam.setVisible(c.connected and c.vcam_on)
+        warns = c.warnings()
+        self.alert.setVisible(bool(warns))
+        self.alert.setToolTip("\n".join(warns))

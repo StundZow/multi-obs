@@ -116,7 +116,7 @@ def main() -> int:
         QMessageBox.information(None, APP_NAME, "Multi OBS est déjà ouvert.")
         return 0
 
-    from . import installinfo
+    from . import applog, installinfo
     from .manager import Manager
     from .ui.main_window import MainWindow
     from .updater import Updater, cleanup_old_exe
@@ -129,6 +129,7 @@ def main() -> int:
     win = MainWindow(manager)
     win.updater = Updater(win, manager)
     win.show()
+    applog.log(f"Multi OBS {APP_VERSION} démarré")
     win.watch_vcams()
     if "--updated" in sys.argv:
         win.statusBar().showMessage(f"Multi OBS a été mis à jour en version {APP_VERSION}.", 15000)

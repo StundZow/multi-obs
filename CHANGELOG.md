@@ -3,6 +3,16 @@
 Chaque version publiée avec `python release.py X.Y.Z` reprend la section correspondante :
 c'est ce texte que Multi OBS affiche quand il propose la mise à jour.
 
+## 1.0.4
+
+- **Réduire une instance** : le bouton **—** en haut de sa carte la range dans la barre
+  **« Instances réduites »** en bas (l'OBS du live quand tu ne lives pas…). Les autres cartes prennent la place.
+- **« Remettre »** (ou double-clic sur la pastille) la ramène en haut, à sa place parmi les autres.
+- Une instance réduite garde son état sous les yeux : Éteinte, Actif, REC avec la durée, VCam allumée, alertes.
+  Son aperçu est arrêté (aucune ressource) et **« Tout allumer » la laisse de côté**.
+- Caméras virtuelles : la réparation automatique n'abandonne plus après un échec (elle réessaie de plus en
+  plus espacé), et « Caméras virtuelles : x/y installées » en bas est remis à jour chaque minute.
+
 ## 1.0.3
 
 - **Crée tes propres types d'enregistrement** : Paramètres → Enregistrements → Ajouter, Renommer,

@@ -1,3 +1,3 @@
 APP_NAME = "Multi OBS"
-APP_VERSION = "1.0.3"
+APP_VERSION = "1.0.4"
 GITHUB_REPO = "StundZow/multi-obs"

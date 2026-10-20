@@ -8,7 +8,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 
-from . import naming, obsfiles, paths, theme, vcam
+from . import applog, naming, obsfiles, paths, theme, vcam
 from .controller import InstanceController
 from .instance_config import InstanceDef, copy_tree_tolerant, ensure_config
 
@@ -272,7 +272,10 @@ class Manager(QObject):
             obsfiles.set_vcam_placeholder(inst.vcam, inst.color)
         if missing and self.settings.get("vcam_scope") == vcam.SCOPE_USER:
             progress(0, 0, "Installation des caméras virtuelles…")
-            return vcam.install(sorted(set(missing)), vcam.SCOPE_USER, colors)
+            failed = vcam.install(sorted(set(missing)), vcam.SCOPE_USER, colors)
+            applog.log(f"Allumage : caméras virtuelles {sorted(set(missing))} installées"
+                       + (f" (échec pour {failed})" if failed else ""))
+            return failed
         return sorted(set(missing))
 
     def update_obs(self, progress) -> None:
@@ -396,6 +399,12 @@ class Manager(QObject):
         for inst in self.instances:
             if inst.id == inst_id:
                 inst.preview_hidden = hidden
+        self.save()
+
+    def set_card_minimized(self, inst_id: str, minimized: bool) -> None:
+        for inst in self.instances:
+            if inst.id == inst_id:
+                inst.card_minimized = minimized
         self.save()
 
     def shutdown(self) -> None:
