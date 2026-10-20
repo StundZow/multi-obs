@@ -1,0 +1,15 @@
+# Données locales (instances, copie d'OBS, préconfigs, réglages)
+data/
+
+# Builds
+build/
+dist/
+*.exe
+*.spec
+multiobs/assets/multiobs.ico
+build_notes.md
+
+# Python
+__pycache__/
+*.pyc
+.venv/
