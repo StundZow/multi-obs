@@ -3,6 +3,12 @@
 Chaque version publiée avec `python release.py X.Y.Z` reprend la section correspondante :
 c'est ce texte que Multi OBS affiche quand il propose la mise à jour.
 
+## 1.0.6
+
+- Aperçu : quand la scène n'a pas le même format que la carte, les bandes autour de l'image prennent
+  **la couleur de l'instance** au lieu du noir, pour ne plus les confondre avec du vide dans la scène OBS.
+- Les badges (REC, VCam active) se placent dans les coins de l'image.
+
 ## 1.0.5
 
 - Le bouton qui range une instance dans la barre « Instances réduites » a une icône plus parlante :

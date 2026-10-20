@@ -63,6 +63,8 @@ class PreviewWidget(QWidget):
         self.badges: list[tuple[str, str]] = []
         self.corner = ""
         self.collapsed = False
+        # Autour de l'image : la couleur de la carte (du noir passerait pour du vide dans la scène OBS).
+        self.background = QColor(YAMI["grey8"])
         self._screen_hooked = False
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)  # on peint tout le rectangle
         sp = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -133,8 +135,8 @@ class PreviewWidget(QWidget):
     def paintEvent(self, _e):
         p = QPainter(self)
         r = QRectF(self.rect())
-        p.fillRect(r, QColor(YAMI["grey8"]))
         if self.collapsed:
+            p.fillRect(r, QColor(YAMI["grey8"]))
             p.setPen(QColor(YAMI["white5"]))
             f = QFont(self.font())
             f.setPointSizeF(8.5)
@@ -142,6 +144,7 @@ class PreviewWidget(QWidget):
             p.drawText(r, Qt.AlignmentFlag.AlignCenter, "Aperçu masqué — clic pour l'afficher")
             p.end()
             return
+        area = r   # zone des badges : l'image elle-même quand il y en a une
         if self.image:
             dpr = self.devicePixelRatioF()
             size = self.image.size().scaled(round(r.width() * dpr), round(r.height() * dpr),
@@ -150,8 +153,11 @@ class PreviewWidget(QWidget):
                 # Juste après un redimensionnement, en attendant l'image à la bonne taille.
                 p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
             w, h = size.width() / dpr, size.height() / dpr
-            p.drawImage(QRectF((r.width() - w) / 2, (r.height() - h) / 2, w, h), self.image)
+            area = QRectF((r.width() - w) / 2, (r.height() - h) / 2, w, h)
+            p.fillRect(r, self.background)
+            p.drawImage(area, self.image)
         else:
+            p.fillRect(r, QColor(YAMI["grey8"]))
             p.setPen(QColor(YAMI["white5"]))
             f = QFont(self.font())
             f.setPointSizeF(10)
@@ -162,13 +168,13 @@ class PreviewWidget(QWidget):
             small = QFont(self.font())
             small.setPointSizeF(8)
             small.setBold(True)
-            x = 8.0
+            x = area.left() + 8
             for text, bg in self.badges:
-                x += _pill(p, x, 8, text, bg, small) + 6
+                x += _pill(p, x, area.top() + 8, text, bg, small) + 6
             if self.corner:
                 p.setFont(small)
                 w = p.fontMetrics().horizontalAdvance(self.corner) + 16
-                _pill(p, r.width() - w - 8, 8, self.corner, "#B0" + YAMI["grey7"][1:], small)
+                _pill(p, area.right() - w - 8, area.top() + 8, self.corner, "#B0" + YAMI["grey7"][1:], small)
         p.end()
 
 

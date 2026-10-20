@@ -2,6 +2,7 @@
 import os
 
 from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QMenu, QMessageBox,
                                QPushButton, QToolButton, QVBoxLayout, QWidget)
 
@@ -229,11 +230,14 @@ class InstanceCard(QFrame):
     def apply_definition(self) -> None:
         inst = self.ctrl.inst
         col = theme.accent(inst.color, 2)
+        bg = theme.mix(YAMI['grey6'], col, 0.07)
         self.stripe.setStyleSheet(
             f"background: {col}; border-top-left-radius: 6px; border-top-right-radius: 6px;")
         self.setStyleSheet(
-            f"QFrame#instanceCard {{ background: {theme.mix(YAMI['grey6'], col, 0.07)}; "
+            f"QFrame#instanceCard {{ background: {bg}; "
             f"border: 1px solid {theme.mix(YAMI['grey5'], col, 0.25)}; }}")
+        self.preview.background = QColor(bg)
+        self.preview.update()
         self.dot.setPixmap(color_dot(col, 12))
         self.name.setText(inst.name)
         self.vcam_btn.setText(f"VCam {inst.vcam}")
