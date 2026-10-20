@@ -187,8 +187,8 @@ class MainWindow(QMainWindow):
         s = self.manager.settings
         example = naming.preview(s.get("filename_template"), self.creator_edit.text(), "cam", self.video_edit.text())
         fm = self.naming_preview.fontMetrics()
-        self.naming_preview.setToolTip(f"Exemple de nom de fichier : {example}")
-        self.naming_preview.setText(fm.elidedText(f"ex. {example}", Qt.TextElideMode.ElideRight,
+        self.naming_preview.setToolTip(f"Nom du prochain fichier : {example}")
+        self.naming_preview.setText(fm.elidedText(f"output : {example}", Qt.TextElideMode.ElideRight,
                                                   max(60, self.naming_preview.width())))
 
     def _build_empty_state(self) -> QFrame:

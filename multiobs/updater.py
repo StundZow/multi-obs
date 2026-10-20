@@ -6,6 +6,7 @@ tourne), puis se relance ; les instances OBS continuent de tourner et sont repri
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import webbrowser
 from pathlib import Path
@@ -14,7 +15,7 @@ from PySide6.QtCore import QObject, QTimer, Qt, Signal
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QMessageBox, QPushButton,
                                QTextBrowser, QVBoxLayout)
 
-from . import APP_NAME, APP_VERSION, GITHUB_REPO, github, installinfo
+from . import APP_NAME, APP_VERSION, GITHUB_REPO, github
 from .ui.tasks import run_task
 
 FROZEN = getattr(sys, "frozen", False)
@@ -132,39 +133,32 @@ class Updater(QObject):
             self.install(release)
 
     def install(self, release: dict) -> None:
-        asset = github.find_asset(release, github.APP_ASSET)
+        asset = github.find_asset(release, github.SETUP_ASSET)
         if not FROZEN or not asset:
             QMessageBox.information(
                 self.window, APP_NAME,
                 "Cette copie de Multi OBS tourne depuis les sources : mets-la à jour avec « git pull ».\n"
                 "La page de la version va s'ouvrir." if not FROZEN else
-                "Cette version ne contient pas de fichier Multi-OBS.exe : la page va s'ouvrir.")
+                "Cette version ne contient pas d'installateur : la page va s'ouvrir.")
             webbrowser.open(release.get("html_url") or f"https://github.com/{GITHUB_REPO}/releases")
             return
-        exe = Path(sys.executable)
-        new = exe.with_name("Multi OBS.new.exe")
+        setup = Path(tempfile.gettempdir()) / f"Multi-OBS-Setup-{release.get('tag_name', 'new')}.exe"
         private = bool(release.get("_token_used"))
 
         def download(progress):
-            github.download_asset(asset, new, lambda done, total: progress(done, total,
+            github.download_asset(asset, setup, lambda done, total: progress(done, total,
                                   f"Téléchargement… {done // 1048576} / {max(total, 1) // 1048576} Mo"), private)
 
         run_task(self.window, f"Mise à jour vers {release.get('tag_name', '')}", download,
-                 on_done=lambda _r: self._swap_and_restart(exe, new, release.get("tag_name", "")))
+                 on_done=lambda _r: self._run_setup(setup))
 
-    def _swap_and_restart(self, exe: Path, new: Path, tag: str) -> None:
-        old = exe.with_name("Multi OBS.old.exe")
+    def _run_setup(self, setup: Path) -> None:
+        """L'installateur attend la fermeture de Multi OBS, remplace l'exe et le relance."""
+        exe = Path(sys.executable)
         try:
-            if old.exists():
-                old.unlink()
-            exe.rename(old)
-            new.rename(exe)
+            subprocess.Popen([str(setup), "--update", "--dir", str(exe.parent), "--wait-pid", str(os.getpid())],
+                             close_fds=True, creationflags=subprocess.DETACHED_PROCESS)
         except OSError as e:
-            if not exe.exists() and old.exists():
-                old.rename(exe)
-            QMessageBox.critical(self.window, APP_NAME, f"Impossible de remplacer le programme :\n{e}")
+            QMessageBox.critical(self.window, APP_NAME, f"Impossible de lancer la mise à jour :\n{e}")
             return
-        installinfo.update_registered_version(tag.lstrip("v"), exe)
-        subprocess.Popen([str(exe), "--wait-pid", str(os.getpid()), "--updated"], cwd=str(exe.parent),
-                         close_fds=True, creationflags=subprocess.DETACHED_PROCESS)
         self.window.quit_for_update()

@@ -247,14 +247,14 @@ class SettingsDialog(QDialog):
         self.quality = QComboBox()
         for v, label in PREVIEW_QUALITY_CHOICES:
             self.quality.addItem(label, v)
-        self.quality.setCurrentIndex(max(0, self.quality.findData(int(manager.settings.get("preview_divisor", 2)))))
+        self.quality.setCurrentIndex(max(0, self.quality.findData(int(manager.settings.get("preview_divisor", 4)))))
         self.quality.currentIndexChanged.connect(lambda: manager.set_preview(divisor=self.quality.currentData()))
         form.addRow("Qualité des aperçus", self.quality)
         self.bg_fps = QComboBox()
         for v, label in PREVIEW_BACKGROUND_CHOICES:
             self.bg_fps.addItem(label, v)
         self.bg_fps.setCurrentIndex(max(0, self.bg_fps.findData(
-            int(manager.settings.get("preview_background_fps", 5)))))
+            int(manager.settings.get("preview_background_fps", -1)))))
         self.bg_fps.currentIndexChanged.connect(lambda: manager.set_preview(background_fps=self.bg_fps.currentData()))
         self.bg_fps.setToolTip("Quand une autre appli est au premier plan. Fenêtre réduite, session "
                                "verrouillée ou écran éteint : les aperçus sont toujours en pause.")
@@ -301,7 +301,7 @@ class SettingsDialog(QDialog):
         s = self.manager.settings
         ex = naming.preview(self.template.text(), s.get("creator", "") or "Nom", "cam",
                             s.get("video_name", "") or "Vidéo")
-        self.template_preview.setText(f"ex. {ex}.mp4")
+        self.template_preview.setText(f"output : {ex}.mp4")
 
     def _refresh(self):
         self._refresh_template_preview()

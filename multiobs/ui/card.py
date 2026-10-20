@@ -233,7 +233,7 @@ class InstanceCard(QFrame):
         c = self.ctrl
         status = c.status
         connected = c.connected
-        fps_setting = int(c.settings.get("preview_fps", 30)) if c.settings else 30
+        fps_setting = int(c.settings.get("preview_fps", 60)) if c.settings else 60
 
         if status == "stopped":
             self._set_chip("Éteinte", "")

@@ -17,9 +17,9 @@ AUTOSAVE_SLUG = "_derniere_session"
 
 DEFAULT_SETTINGS = {
     "obs_source": "",
-    "preview_fps": 30,
-    "preview_divisor": 2,
-    "preview_background_fps": 5,
+    "preview_fps": 60,
+    "preview_divisor": 4,
+    "preview_background_fps": -1,     # -1 : comme au premier plan
     "taskbar_rename": True,
     "check_updates": True,
     "skipped_version": "",
@@ -73,8 +73,8 @@ class Manager(QObject):
 
     def _make_controller(self, inst: InstanceDef) -> InstanceController:
         c = InstanceController(inst, int(self.settings["preview_fps"]),
-                               int(self.settings.get("preview_divisor", 2)),
-                               int(self.settings.get("preview_background_fps", 5)), self)
+                               int(self.settings.get("preview_divisor", 4)),
+                               int(self.settings.get("preview_background_fps", -1)), self)
         c.settings = self.settings
         c.defaultAudioAdded.connect(self._on_default_audio_added)
         c.obsReady.connect(lambda inst_id: self.apply_naming(inst_id))

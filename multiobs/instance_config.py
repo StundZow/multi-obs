@@ -177,9 +177,18 @@ def _create_profile(cfg: Path, name: str, user: Ini, obs_bin: Path | None = None
     # « Identique au stream » (défaut d'OBS) désactive la pause : haute qualité, taille moyenne.
     ini.set("SimpleOutput", "RecQuality", "Small")
     if obs_bin and _nvenc_available(obs_bin):
-        # Encodage par la carte graphique : 3 instances en x264 chargeraient trop le processeur.
+        # Encodage par la carte graphique NVIDIA : 3 instances en x264 chargeraient trop le
+        # processeur, et sur un PC avec puce AMD intégrée OBS proposerait l'encodeur AMD.
         ini.set("SimpleOutput", "StreamEncoder", "nvenc")
         ini.set("SimpleOutput", "RecEncoder", "nvenc")
+        # Mode avancé : NVENC aussi, avec un encodeur d'enregistrement à part (la pause marche).
+        ini.set("AdvOut", "Encoder", "obs_nvenc_h264_tex")
+        ini.set("AdvOut", "RecEncoder", "obs_nvenc_h264_tex")
+        pdir.mkdir(parents=True, exist_ok=True)
+        (pdir / "streamEncoder.json").write_text(
+            json.dumps({"rate_control": "CBR", "bitrate": 6000, "preset2": "p5"}), "utf-8")
+        (pdir / "recordEncoder.json").write_text(
+            json.dumps({"rate_control": "CQP", "cqp": 20, "preset2": "p5"}), "utf-8")
     ini.save()
     user.set("Basic", "Profile", name)
     user.set("Basic", "ProfileDir", slug)

@@ -40,8 +40,8 @@ class InstanceController(QObject):
     obsReady = Signal(str)
     previewFps = Signal(float)
 
-    def __init__(self, inst: InstanceDef, preview_fps: int = 30, preview_divisor: int = 2,
-                 preview_background_fps: int = 5, parent=None):
+    def __init__(self, inst: InstanceDef, preview_fps: int = 60, preview_divisor: int = 4,
+                 preview_background_fps: int = -1, parent=None):
         super().__init__(parent)
         self.inst = inst
         self.proc: psutil.Process | None = None

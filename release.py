@@ -3,9 +3,9 @@
     python release.py 1.1.0
 
 1. met la version dans multiobs/__init__.py
-2. construit Multi-OBS.exe et Multi-OBS-Setup.exe (build.py)
+2. construit l'installateur Multi-OBS-Setup.exe, qui contient l'appli (build.py)
 3. commit + tag v1.1.0 + push
-4. crée la release GitHub avec les notes de CHANGELOG.md (section « ## 1.1.0 »)
+4. crée la release GitHub (seulement l'installateur) avec les notes de CHANGELOG.md (« ## 1.1.0 »)
 
 Les applis installées la proposent au prochain démarrage, avec ces notes.
 """
@@ -50,8 +50,8 @@ def main() -> None:
     notes_file = ROOT / "build_notes.md"
     notes_file.write_text(notes, "utf-8")
     try:
-        run("gh", "release", "create", f"v{version}", str(ROOT / "dist" / "Multi-OBS.exe"),
-            str(ROOT / "dist" / "Multi-OBS-Setup.exe"), "--title", f"Multi OBS {version}",
+        run("gh", "release", "create", f"v{version}", str(ROOT / "dist" / "Multi-OBS-Setup.exe"),
+            "--title", f"Multi OBS {version}",
             "--notes-file", str(notes_file))
     finally:
         notes_file.unlink(missing_ok=True)

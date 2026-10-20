@@ -9,18 +9,18 @@ Les instances ne partagent aucun fichier de config : modifier l'une ne fait plus
 ## Installer
 
 1. Télécharge **`Multi-OBS-Setup.exe`** depuis la page [Releases](https://github.com/StundZow/multi-obs/releases).
-2. Lance-le : il récupère la dernière version sur GitHub et l'installe dans
-   `%LOCALAPPDATA%\Programs\Multi OBS` (modifiable), sans droits administrateur, avec les raccourcis
-   menu Démarrer / bureau.
+2. Lance-le : il installe Multi OBS dans `%LOCALAPPDATA%\Programs\Multi OBS` (modifiable), sans droits
+   administrateur, avec les raccourcis menu Démarrer / bureau. S'il existe une version plus récente sur
+   GitHub, il la télécharge d'abord.
 3. Pour désinstaller : Paramètres Windows → Applications → Multi OBS.
 
-> Tant que le dépôt est **privé**, l'installateur et les mises à jour ont besoin d'être authentifiés :
+> Tant que le dépôt est **privé**, la recherche de mises à jour a besoin d'être authentifiée :
 > installe [GitHub CLI](https://cli.github.com/) et connecte-toi avec `gh auth login`, ou définis la
 > variable d'environnement `MULTIOBS_GITHUB_TOKEN`. Une fois le dépôt public, rien n'est nécessaire.
 
 **Mises à jour** : au démarrage, Multi OBS vérifie s'il existe une nouvelle version et affiche son
-changelog. « Mettre à jour » télécharge la nouvelle version et relance Multi OBS. Les instances OBS
-continuent de tourner pendant la mise à jour.
+changelog. « Mettre à jour » télécharge le nouvel installateur, qui remplace Multi OBS et le relance.
+Les instances OBS continuent de tourner pendant la mise à jour.
 
 Au premier lancement d'une instance, Multi OBS copie ton installation d'OBS dans `data/runtime`
 (environ 450 Mo, une seule fois). Les instances pointent vers cette copie par liens physiques et ne
@@ -56,13 +56,13 @@ avec le logo OBS à sa couleur.
 
 ## Aperçu : qualité et ressources
 
-L'aperçu est **sans compression**. Pour qu'il coûte le moins possible :
+L'aperçu est **sans compression** (par défaut 60 i/s, en 1/4). Pour qu'il coûte le moins possible :
 
 - jamais plus de pixels que l'écran n'en affiche (le réglage 1/1, 1/2, 1/4 est un maximum) ;
 - jamais plus d'images par seconde que la scène OBS n'en produit ;
 - **en pause** quand il ne sert à rien : fenêtre réduite, carte hors de l'écran, aperçu masqué
   (menu ⋮), session verrouillée, écran éteint ;
-- **ralenti** quand Multi OBS est en arrière-plan (5 i/s par défaut, réglable) ;
+- option : **ralentir** quand Multi OBS est en arrière-plan (désactivée par défaut) ;
 - image figée (écran immobile) : ni décodage ni affichage, vérifiée 2 fois par seconde ;
 - si OBS perd des images, l'aperçu se ralentit tout seul pour protéger l'enregistrement ;
 - décodage dans un thread à part, de priorité basse.
@@ -112,10 +112,11 @@ Multi OBS le propose aussi au lancement. Les scènes et réglages des instances 
 ## Développement
 
 - Lancer depuis les sources : `python "Multi OBS.pyw"` (Python 3.12+, `pip install PySide6 psutil`).
-- Construire les exe : `python build.py` → `dist/Multi-OBS.exe` et `dist/Multi-OBS-Setup.exe`
-  (`pip install pyinstaller pillow`).
+- Construire : `python build.py` → `dist/Multi-OBS.exe` (l'appli) puis `dist/Multi-OBS-Setup.exe`
+  (l'installateur, qui la contient) — `pip install pyinstaller pillow`.
 - Publier une version : ajoute une section `## X.Y.Z` dans `CHANGELOG.md`, puis
-  `python release.py X.Y.Z`. Ça construit les exe, crée le tag et la release GitHub avec ces notes.
+  `python release.py X.Y.Z`. Ça construit, crée le tag et la release GitHub (seulement l'installateur)
+  avec ces notes.
   Les applis installées la proposent au démarrage suivant.
 
 Les icônes de l'interface proviennent d'OBS Studio (GPL-2.0).

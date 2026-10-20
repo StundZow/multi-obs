@@ -1,7 +1,7 @@
 """Construit les exécutables dans dist/ :
 
   Multi-OBS.exe        l'application (copiée aussi en « Multi OBS.exe » à la racine)
-  Multi-OBS-Setup.exe  l'installateur (télécharge la dernière version sur GitHub)
+  Multi-OBS-Setup.exe  l'installateur, qui contient l'application : c'est le seul fichier publié
 
     python build.py            # les deux
     python build.py app        # l'application seulement
@@ -58,8 +58,12 @@ def build_app() -> Path:
 
 
 def build_installer() -> Path:
+    app = DIST / "Multi-OBS.exe"
+    if not app.exists():
+        raise SystemExit("Construis d'abord l'application (python build.py app).")
     pyinstaller("--name", "Multi-OBS-Setup", "--paths", str(ROOT),
                 "--add-data", f"{ICON};.",
+                "--add-data", f"{app};payload",
                 "--exclude-module", "PySide6", "--exclude-module", "psutil",
                 str(ROOT / "installer" / "setup_multiobs.py"))
     return DIST / "Multi-OBS-Setup.exe"
