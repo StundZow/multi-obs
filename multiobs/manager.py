@@ -23,6 +23,7 @@ DEFAULT_SETTINGS = {
     "taskbar_rename": True,
     "check_updates": True,
     "on_close": "ask",                # instances allumées à la fermeture : ask / keep / stop
+    "rec_types": [["cam", "Cam"], ["ecran", "Écran"], ["live", "Live"]],   # modifiables dans les paramètres
     "skipped_version": "",
     "hotkeys_enabled": False,        # raccourcis globaux : à activer dans les paramètres
     "hotkey_record": "Ctrl+Alt+R",

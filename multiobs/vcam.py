@@ -3,12 +3,16 @@
 On reproduit exactement l'enregistrement fait par l'installeur d'OBS, mais avec un
 CLSID et un nom par caméra, en pointant vers les modules patchés de data/vcam/N.
 """
+import os
 import subprocess
 import tempfile
+import threading
 import winreg
 from pathlib import Path
 
 from . import obsfiles, paths
+
+_lock = threading.Lock()   # allumage et réparation automatique peuvent tourner en même temps
 
 CATEGORY = "{860BB310-5D01-11d0-BD3B-00A0C911CE86}"  # CLSID_VideoInputDeviceCategory
 # FilterData de la caméra virtuelle d'OBS (formats NV12, 1 broche de sortie).
@@ -64,7 +68,11 @@ def _reg_file(indices: list[int], scope: str, remove: bool) -> str:
 
 
 def _run_reg_import(content: str, elevated: bool) -> None:
-    tmp = Path(tempfile.gettempdir()) / "multiobs_vcam.reg"
+    # Un fichier par appel : deux enregistrements simultanés (allumage + réparation, deux
+    # Multi OBS…) ne peuvent pas importer le fichier de l'autre.
+    fd, name = tempfile.mkstemp(prefix="multiobs_vcam_", suffix=".reg")
+    os.close(fd)
+    tmp = Path(name)
     tmp.write_text(content, encoding="utf-16")
     if elevated:
         ps = (f"$p = Start-Process -FilePath reg.exe -ArgumentList 'import','\"{tmp}\"' "
@@ -83,17 +91,19 @@ def _run_reg_import(content: str, elevated: bool) -> None:
 
 def install(indices: list[int], scope: str = SCOPE_USER, colors: dict[int, str] | None = None) -> list[int]:
     """Prépare les modules et enregistre les caméras. Renvoie celles qui ont échoué."""
-    for n in indices:
-        obsfiles.build_vcam_modules(n, (colors or {}).get(n))
-    _run_reg_import(_reg_file(indices, scope, remove=False), elevated=(scope == SCOPE_MACHINE))
-    return [n for n in indices if not is_registered(n)]
+    with _lock:
+        for n in indices:
+            obsfiles.build_vcam_modules(n, (colors or {}).get(n))
+        _run_reg_import(_reg_file(indices, scope, remove=False), elevated=(scope == SCOPE_MACHINE))
+        return [n for n in indices if not is_registered(n)]
 
 
 def uninstall(indices: list[int]) -> None:
-    for scope in (SCOPE_USER, SCOPE_MACHINE):
-        regs = [n for n in indices if registered_scope(n) == scope]
-        if regs:
-            _run_reg_import(_reg_file(regs, scope, remove=True), elevated=(scope == SCOPE_MACHINE))
+    with _lock:
+        for scope in (SCOPE_USER, SCOPE_MACHINE):
+            regs = [n for n in indices if registered_scope(n) == scope]
+            if regs:
+                _run_reg_import(_reg_file(regs, scope, remove=True), elevated=(scope == SCOPE_MACHINE))
 
 
 def _inproc_path(hive, n: int) -> str | None:

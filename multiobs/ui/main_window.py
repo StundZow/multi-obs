@@ -12,7 +12,7 @@ from ..preview import STATE_ACTIVE, STATE_AWAY, STATE_BACKGROUND
 from ..syswatch import SystemEvents
 from .card import InstanceCard
 from .dialogs import InstanceDialog, SettingsDialog
-from .tasks import run_task
+from .tasks import Task, run_task
 from .widgets import icon
 
 CARD_MIN_W = 440
@@ -116,10 +116,10 @@ class MainWindow(QMainWindow):
         lay.addWidget(_vsep())
 
         self.rec_all_btn = self._btn("Tout enregistrer", "rec.svg",
-                                     "Démarrer / arrêter l'enregistrement des instances cochées « Synchro »",
+                                     "Démarrer / arrêter l'enregistrement des instances liées (Link)",
                                      self.toggle_record_all)
         self.pause_all_btn = self._btn("Tout en pause", "pause.svg",
-                                       "Mettre en pause / reprendre les enregistrements des instances cochées « Synchro »",
+                                       "Mettre en pause / reprendre les enregistrements des instances liées (Link)",
                                        self.toggle_pause_all)
         lay.addWidget(self.rec_all_btn)
         lay.addWidget(self.pause_all_btn)
@@ -348,7 +348,7 @@ class MainWindow(QMainWindow):
         def done(missing_vcams):
             for inst in insts:
                 self.manager.controller(inst.id).start()
-            if missing_vcams:
+            if missing_vcams and self.manager.settings.get("vcam_scope") == vcam.SCOPE_USER:
                 self.statusBar().showMessage(
                     "Caméra(s) virtuelle(s) non installée(s) : " + ", ".join(map(str, missing_vcams))
                     + " — voir Paramètres.", 10000)
@@ -572,6 +572,9 @@ class MainWindow(QMainWindow):
         dlg = SettingsDialog(self.manager, self, self)
         dlg.hotkeysChanged.connect(self.apply_hotkeys)
         dlg.exec()
+        for card in self.cards.values():   # types d'enregistrement peut-être modifiés
+            card.reload_types()
+            card.refresh()
         self.refresh_status()
 
     def apply_hotkeys(self) -> None:
@@ -603,6 +606,34 @@ class MainWindow(QMainWindow):
         insts = self.manager.instances
         ok = sum(1 for i in insts if vcam.is_registered(i.vcam))
         self.status_vcam.setText(f"Caméras virtuelles : {ok}/{len(insts)} installées" if insts else "")
+
+    def watch_vcams(self) -> None:
+        """Remet les caméras virtuelles qui ont disparu de Windows : au démarrage, puis chaque minute
+        (sinon elles ne revenaient qu'au prochain allumage des instances)."""
+        self._vcam_watch = QTimer(self, interval=60_000, timeout=self.repair_vcams)
+        self._vcam_watch.start()
+        QTimer.singleShot(1500, self.repair_vcams)
+
+    def repair_vcams(self) -> None:
+        if self.manager.settings.get("vcam_scope") != vcam.SCOPE_USER or obsfiles.runtime_signature() is None \
+                or getattr(self, "_vcam_task", None) is not None:
+            return
+        colors = {i.vcam: i.color for i in self.manager.instances if not vcam.is_registered(i.vcam)}
+        if not colors:
+            return
+
+        def done(failed):
+            self._vcam_task = None
+            if failed and hasattr(self, "_vcam_watch"):
+                self._vcam_watch.stop()   # échec (droits, antivirus…) : on ne réessaie pas en boucle
+            self.refresh_status()
+
+        task = Task(lambda _p: vcam.install(sorted(colors), vcam.SCOPE_USER, colors), self)
+        task.succeeded.connect(done)
+        task.failed.connect(lambda _m: done(sorted(colors)))
+        task.finished.connect(task.deleteLater)
+        self._vcam_task = task
+        task.start()
 
     def quit_for_update(self) -> None:
         """Ferme Multi OBS sans rien demander : les instances continuent de tourner et

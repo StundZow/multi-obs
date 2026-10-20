@@ -1,123 +1,133 @@
+<div align="center">
+
+<img src="icon.png" width="96" alt="Icône Multi OBS">
+
 # Multi OBS
 
-Plusieurs OBS Studio indépendants, pilotés depuis une seule fenêtre.
+Plusieurs **OBS Studio** indépendants, pilotés depuis une seule fenêtre : ta caméra, ton écran et ton live enregistrés séparément, sans que les OBS se marchent dessus.
 
-Chaque **instance** est un vrai OBS (même version que ton OBS habituel) avec ses propres scènes,
-profils, réglages et plugins, sa couleur (thème Yami teinté) et sa propre caméra virtuelle.
-Les instances ne partagent aucun fichier de config : modifier l'une ne fait plus planter les autres.
+[**⬇ Télécharger pour Windows**](https://github.com/StundZow/multi-obs/releases/latest/download/Multi-OBS-Setup.exe) · [Releases](https://github.com/StundZow/multi-obs/releases)
 
-## Installer
+<img src="screenshots/01_main.png" width="760" alt="Fenêtre principale de Multi OBS">
 
-1. Télécharge **`Multi-OBS-Setup.exe`** depuis la page [Releases](https://github.com/StundZow/multi-obs/releases).
-2. Lance-le : il installe Multi OBS dans `%LOCALAPPDATA%\Programs\Multi OBS` (modifiable), sans droits
-   administrateur, avec les raccourcis menu Démarrer / bureau. S'il existe une version plus récente sur
-   GitHub, il la télécharge d'abord.
-3. Pour désinstaller : Paramètres Windows → Applications → Multi OBS.
+<sub>Les aperçus de ces captures sont des images factices.</sub>
 
-> Tant que le dépôt est **privé**, la recherche de mises à jour a besoin d'être authentifiée :
-> installe [GitHub CLI](https://cli.github.com/) et connecte-toi avec `gh auth login`, ou définis la
-> variable d'environnement `MULTIOBS_GITHUB_TOKEN`. Une fois le dépôt public, rien n'est nécessaire.
+</div>
 
-**Mises à jour** : au démarrage, Multi OBS vérifie s'il existe une nouvelle version et affiche son
-changelog. « Mettre à jour » télécharge le nouvel installateur, qui remplace Multi OBS et le relance.
-Les instances OBS continuent de tourner pendant la mise à jour.
+## Ce que ça fait
 
-Au premier lancement d'une instance, Multi OBS copie ton installation d'OBS dans `data/runtime`
-(environ 450 Mo, une seule fois). Les instances pointent vers cette copie par liens physiques et ne
-prennent presque pas de place en plus.
+Pour enregistrer ta caméra et ton écran dans des fichiers séparés — et parfois faire un live en même temps — il faut plusieurs OBS. Multi OBS lance autant d'**instances** que tu veux : chacune est un vrai OBS, avec ses scènes, ses réglages, sa couleur et sa caméra virtuelle, et tu les pilotes toutes depuis une seule fenêtre — aperçu en direct, son, enregistrement, pause.
 
-## La fenêtre principale
+Les fenêtres OBS restent réduites : tu ne les ouvres (**Voir OBS**) que pour régler tes scènes.
 
-| Zone | Rôle |
-|---|---|
-| **Tout allumer / Tout éteindre** | Démarre ou arrête l'OBS de toutes les instances |
-| **Tout enregistrer / Tout en pause** | Agit sur les instances cochées « Synchro » |
-| **Nom / Vidéo** | Nom des fichiers de toutes les instances : `Nom-type-Vidéo-date_heure` |
-| **Préconfig** | Enregistre ou rouvre un ensemble complet d'instances (scènes, réglages…) |
+## Pourquoi pas juste ouvrir deux OBS ?
 
-Sur chaque carte d'instance :
+Parce que deux OBS lancés normalement partagent le même dossier de configuration : quand l'un enregistre un réglage, l'autre plante. Et Streamlabs, souvent utilisé comme « deuxième OBS », ne sait pas mettre un enregistrement en pause. Ici, chaque instance a sa propre installation portable : elles ne peuvent pas se gêner.
 
-| Élément | Rôle |
-|---|---|
-| **Allumer / Éteindre** | Démarre ou arrête l'OBS de l'instance (il tourne réduit, tu le pilotes d'ici) |
-| **Voir OBS** | Ouvre la fenêtre OBS de l'instance, pour régler scènes et sources |
-| **Rec / Pause** | Enregistrement de cette instance seulement |
-| **VCam N** | Allume / éteint sa caméra virtuelle « OBS Virtual Camera N » |
-| **Cam / Écran / B-roll / Live** | Type de l'instance, utilisé dans le nom des fichiers |
-| **Synchro** | Cochée : l'instance suit « Tout enregistrer », « Tout en pause » et les raccourcis |
-| Aperçu, vumètres | Image en direct, niveaux audio (clic sur l'icône = couper), images perdues, CPU |
-| Bas de carte | Espace libre du disque (barre rouge sous 200 Go), fichier ou dossier d'enregistrement |
+## Fonctionnalités
 
-**Raccourcis globaux** (désactivés par défaut, à activer dans ⚙ ; ils marchent même si Multi OBS n'est
-pas au premier plan) : `Ctrl+Alt+R` pour tout enregistrer ou arrêter, `Ctrl+Alt+P` pour tout mettre en
-pause ou reprendre. Modifiables dans ⚙.
+- 🧩 **Instances indépendantes** — scènes, profils, plugins et réglages séparés ; aucune ne peut faire planter les autres
+- 🔗 **Pilotage global** — tout allumer, tout enregistrer, tout mettre en pause d'un clic ; une instance déliée (**Link**) reste à part, pratique pour le live
+- 👀 **Aperçu en direct sans compression**, vumètres audio, images perdues, CPU, et alertes (pas de son, disque presque plein, OBS qui attend une réponse)
+- 🎥 **Une caméra virtuelle par instance** — « OBS Virtual Camera 1, 2, 3… » pour Discord, Zoom ou une autre instance, sans droits administrateur
+- 🏷️ **Nommage automatique** — `Nom-type-Vidéo-date_heure`, avec tes propres types (Cam, Écran et Live par défaut)
+- 🎞️ **MKV → MP4 automatique** à la fin du rec, et option pour mettre le MKV à la corbeille une fois le MP4 vérifié
+- 💾 **Espace disque** et fichier en cours affichés sur chaque instance, dossier d'enregistrement en un clic
+- 🎨 **Une couleur par instance** — thème OBS teinté, logo coloré dans la barre des tâches, image de caméra virtuelle assortie
+- 📦 **Préconfigs** — enregistre et rouvre un ensemble complet d'instances
+- 🔄 **Mise à jour automatique** intégrée, avec le changelog
 
-**Barre des tâches** : chaque instance s'appelle « OBS Blue — Caméra », « OBS Red — Écran »…
-avec le logo OBS à sa couleur.
+<div align="center">
+<img src="screenshots/02_settings.png" width="420" alt="Paramètres : nom des fichiers et types d'enregistrement">
+&nbsp;&nbsp;
+<img src="screenshots/03_new_instance.png" width="420" alt="Nouvelle instance">
+</div>
 
-## Aperçu : qualité et ressources
+## Prise en main
 
-L'aperçu est **sans compression** (par défaut 60 i/s, en 1/4). Pour qu'il coûte le moins possible :
-
-- jamais plus de pixels que l'écran n'en affiche (le réglage 1/1, 1/2, 1/4 est un maximum) ;
-- jamais plus d'images par seconde que la scène OBS n'en produit ;
-- **en pause** quand il ne sert à rien : fenêtre réduite, carte hors de l'écran, aperçu masqué
-  (menu ⋮), session verrouillée, écran éteint ;
-- option : **ralentir** quand Multi OBS est en arrière-plan (désactivée par défaut) ;
-- image figée (écran immobile) : ni décodage ni affichage, vérifiée 2 fois par seconde ;
-- si OBS perd des images, l'aperçu se ralentit tout seul pour protéger l'enregistrement ;
-- décodage dans un thread à part, de priorité basse.
+1. [Télécharge `Multi-OBS-Setup.exe`](https://github.com/StundZow/multi-obs/releases/latest/download/Multi-OBS-Setup.exe) et lance-le — pas besoin d'être administrateur. [OBS Studio](https://obsproject.com/) doit être installé.
+2. Trois cases à cocher (menu Démarrer, bureau, lancer à la fin) et un dossier d'installation modifiable.
+3. **Nouvelle instance** : un nom, une couleur, un type. « Partir de mes scènes et réglages OBS actuels » copie ta config OBS — ton OBS habituel n'est pas modifié.
+4. **Voir OBS** pour régler les scènes de l'instance, puis pilote tout depuis Multi OBS : **Rec**, **Pause**, **VCam**, et les boutons du haut pour toutes les instances liées.
+5. Remplis **Nom** et **Vidéo** en haut : chaque fichier s'appellera par exemple `Stund-cam-Tuto-2026-10-20_17-49-50.mp4`.
 
 ## Caméras virtuelles
 
-Chaque instance a sa caméra « **OBS Virtual Camera N** » (1, 2, 3…), en plus de « OBS Virtual Camera »
-de ton OBS habituel. Elles s'installent automatiquement, sans droits administrateur.
+Chaque instance a sa propre caméra virtuelle, à côté de « OBS Virtual Camera » de ton OBS habituel. Pour partager ta webcam entre plusieurs instances, l'instance qui la capture allume sa **VCam**, et les autres ajoutent une source « Périphérique de capture vidéo » sur « OBS Virtual Camera N ». Une instance ne voit pas sa propre caméra virtuelle, ce qui évite les boucles. Si une caméra disparaît de Windows, Multi OBS la remet tout seul.
 
-- **Discord, Zoom, navigateur…** : choisis « OBS Virtual Camera 2 », par exemple. Redémarre Discord la
-  première fois.
-- **Partager la webcam entre instances** : l'instance qui capture la webcam allume sa caméra virtuelle,
-  les autres ajoutent une source « Périphérique de capture vidéo » sur « OBS Virtual Camera N ».
-  Une instance ne voit pas sa propre caméra virtuelle, ce qui évite les boucles.
+Quand une caméra virtuelle est éteinte, son image d'attente prend la couleur de son instance :
 
-## Enregistrements
+<div align="center">
+<img src="screenshots/06_vcam.png" width="760" alt="Images d'attente des caméras virtuelles, une par couleur">
+</div>
 
-- **Pause** : les nouvelles instances enregistrent en **MKV**. Le format « MP4 hybride » d'OBS ne gère
-  pas la pause, et Multi OBS le signale si c'est le cas.
-- **Conversion MP4** : à la fin du rec, OBS convertit le MKV en MP4 (sans perte, quelques secondes).
-  Option : mettre le MKV à la corbeille une fois le MP4 vérifié.
-- **Nom des fichiers** : modèle réglable dans ⚙, par défaut `{user}-{type}-{video}-{date}_{time}`.
-  Si deux instances ont le même type, le nom de l'instance est ajouté.
-- **Sécurités** : dossier d'enregistrement introuvable (disque débranché…) → le rec est refusé avec un
-  message clair. Si OBS attend une réponse dans sa fenêtre réduite, la carte le signale.
+## Barre des tâches
 
-## Mettre à jour OBS
+Chaque instance porte un nom clair et le logo OBS à sa couleur, pour s'y retrouver d'un coup d'œil :
 
-Mets à jour ton OBS habituel normalement, puis ⚙ → « Mettre à jour les instances ».
-Multi OBS le propose aussi au lancement. Les scènes et réglages des instances sont conservés.
+<div align="center">
+<img src="screenshots/07_taskbar.png" width="760" alt="Barre des tâches avec trois instances">
+</div>
 
-## Où sont les fichiers
+## Aperçu économe
+
+L'aperçu est **sans compression** (par défaut 60 images/s en 1/4) et coûte le moins possible :
+
+- jamais plus de pixels que l'écran n'en affiche, ni plus d'images que la scène OBS n'en produit ;
+- **en pause** quand il ne sert à rien : fenêtre réduite, carte hors de l'écran, aperçu masqué, session verrouillée, écran éteint ;
+- image figée : ni décodage ni affichage ;
+- si OBS perd des images, l'aperçu ralentit tout seul pour protéger l'enregistrement ;
+- décodage dans un thread à part, de priorité basse.
+
+Mesuré avec trois instances et les réglages par défaut : 2 à 4 % du processeur pour les trois OBS, autant pour Multi OBS, sans image perdue à l'enregistrement.
+
+<div align="center">
+<img src="screenshots/05_update.png" width="420" alt="Mise à jour proposée avec le changelog">
+&nbsp;&nbsp;
+<img src="screenshots/04_settings_preview.png" width="420" alt="Paramètres de l'aperçu">
+</div>
+
+## Comment ça marche
+
+- **Une installation OBS portable par instance.** Multi OBS copie ton OBS une fois (`data/runtime`), et chaque instance y pointe par liens physiques : trois instances ne prennent presque pas plus de place qu'une. Chacune a son propre dossier `config/`.
+- **Pilotage par obs-websocket**, intégré à OBS : une connexion pour les commandes et l'état, une seconde en binaire (MessagePack) réservée à l'aperçu.
+- **Caméras virtuelles** : le module de caméra virtuelle d'OBS est dupliqué et modifié pour chaque instance (identifiant et mémoire partagée propres), puis enregistré pour l'utilisateur courant.
+- **Installateur unique** : `Multi-OBS-Setup.exe` contient l'appli. Au lancement, il vérifie s'il existe une version plus récente sur GitHub. Les mises à jour de l'appli téléchargent ce même installateur, qui remplace Multi OBS et le relance — les instances OBS continuent de tourner pendant ce temps.
+- **Testé** par une batterie de 59 vérifications : enregistrements simultanés avec pauses (durées, images, son), boutons, raccourcis, aperçus, économies, plantages, redémarrage.
+
+Les données sont dans le dossier d'installation :
 
 ```
-<dossier d'installation>/
-  Multi OBS.exe
-  data/
-    runtime/      copie d'OBS
-    instances/    une installation OBS portable par instance (config dans instances/instN/config)
-    vcam/         modules des caméras virtuelles
-    icons/        logos OBS colorés (barre des tâches)
-    presets/      préconfigs
-    corbeille/    config des instances supprimées (récupérable)
-    multiobs.json réglages de Multi OBS
+Multi OBS.exe
+data/
+  runtime/      copie d'OBS
+  instances/    une installation OBS portable par instance
+  vcam/         modules des caméras virtuelles
+  presets/      préconfigs
+  multiobs.json réglages
 ```
 
-## Développement
+Pour mettre à jour OBS : mets à jour ton OBS habituel, puis ⚙ → Général → « Mettre à jour les instances ».
 
-- Lancer depuis les sources : `python "Multi OBS.pyw"` (Python 3.12+, `pip install PySide6 psutil`).
-- Construire : `python build.py` → `dist/Multi-OBS.exe` (l'appli) puis `dist/Multi-OBS-Setup.exe`
-  (l'installateur, qui la contient) — `pip install pyinstaller pillow`.
-- Publier une version : ajoute une section `## X.Y.Z` dans `CHANGELOG.md`, puis
-  `python release.py X.Y.Z`. Ça construit, crée le tag et la release GitHub (seulement l'installateur)
-  avec ces notes.
-  Les applis installées la proposent au démarrage suivant.
+> Tant que le dépôt est **privé**, la recherche de mises à jour passe par [GitHub CLI](https://cli.github.com/) connecté (`gh auth login`) ou la variable `MULTIOBS_GITHUB_TOKEN`.
 
-Les icônes de l'interface proviennent d'OBS Studio (GPL-2.0).
+## Lancer depuis les sources
+
+```bash
+pip install PySide6 psutil
+python "Multi OBS.pyw"
+```
+
+## Publier une nouvelle version (pour les mainteneurs)
+
+Ajoute une section `## X.Y.Z` dans `CHANGELOG.md`, puis :
+
+```bash
+python release.py X.Y.Z
+```
+
+Le script reconstruit l'appli et l'installateur (`pip install pyinstaller pillow`), tague la version et publie la release GitHub — avec seulement l'installateur et les notes du changelog. Nécessite [GitHub CLI](https://cli.github.com/) authentifié.
+
+---
+
+Les icônes de l'interface et le logo OBS proviennent d'[OBS Studio](https://github.com/obsproject/obs-studio) (GPL-2.0).

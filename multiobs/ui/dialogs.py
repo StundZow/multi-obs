@@ -4,8 +4,9 @@ from pathlib import Path
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
-                               QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QKeySequenceEdit,
-                               QLabel, QLineEdit, QMessageBox, QPushButton, QVBoxLayout)
+                               QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QInputDialog,
+                               QKeySequenceEdit, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+                               QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget)
 
 from .. import naming, obsfiles, paths, theme, vcam
 from ..instance_config import InstanceDef
@@ -87,15 +88,17 @@ class InstanceDialog(QDialog):
         form.addRow("Caméra virtuelle", self.vcam)
 
         self.rec_type = QComboBox()
-        for key, label in naming.REC_TYPES:
+        for key, label in naming.rec_types(manager.settings):
             self.rec_type.addItem(label, key)
-        current_type = inst.rec_type if inst else naming.guess_type(self.name.text())
+        current_type = inst.rec_type if inst else naming.guess_type(self.name.text(), manager.settings)
+        if self.rec_type.findData(current_type) < 0:   # type supprimé depuis : on le garde affiché
+            self.rec_type.addItem(current_type, current_type)
         self.rec_type.setCurrentIndex(max(0, self.rec_type.findData(current_type)))
         self.rec_type.setToolTip("Utilisé dans le nom des fichiers : NOM-TYPE-VIDÉO-DATE")
         form.addRow("Type d'enregistrement", self.rec_type)
         if not inst:
             self.name.textEdited.connect(lambda t: self.rec_type.setCurrentIndex(
-                max(0, self.rec_type.findData(naming.guess_type(t)))))
+                max(0, self.rec_type.findData(naming.guess_type(t, manager.settings)))))
         lay.addLayout(form)
 
         self.minimized = QCheckBox("Ouvrir la fenêtre OBS réduite (on la pilote depuis Multi OBS)")
@@ -160,9 +163,22 @@ class SettingsDialog(QDialog):
         self.manager = manager
         self.main = main
         lay = _base_dialog(self, "Paramètres de Multi OBS")
-        self.setMinimumWidth(560)
+        self.setMinimumWidth(620)
+        tabs = QTabWidget()
+        lay.addWidget(tabs)
 
-        # OBS
+        def page(title: str) -> QVBoxLayout:
+            w = QWidget()
+            v = QVBoxLayout(w)
+            v.setContentsMargins(12, 14, 12, 12)
+            v.setSpacing(12)
+            tabs.addTab(w, title)
+            return v
+
+        general, recs, preview, vcams, keys = (page("Général"), page("Enregistrements"), page("Aperçu"),
+                                               page("Caméras virtuelles"), page("Raccourcis"))
+
+        # ---- Général : OBS, fenêtre, mises à jour
         g = QGroupBox("OBS Studio")
         gl = QVBoxLayout(g)
         row = QHBoxLayout()
@@ -182,14 +198,40 @@ class SettingsDialog(QDialog):
                                    "Les scènes et réglages des instances sont conservés.")
         self.update_btn.clicked.connect(self._update_obs)
         gl.addWidget(self.update_btn, 0, Qt.AlignmentFlag.AlignLeft)
-        lay.addWidget(g)
+        general.addWidget(g)
 
-        # Enregistrements
-        g = QGroupBox("Enregistrements")
+        g = QGroupBox("Fenêtre")
+        form = QFormLayout(g)
+        form.setVerticalSpacing(10)
+        self.on_close = QComboBox()
+        for v, label in (("ask", "Demander"), ("keep", "Laisser tourner les instances"), ("stop", "Tout éteindre")):
+            self.on_close.addItem(label, v)
+        self.on_close.setCurrentIndex(max(0, self.on_close.findData(manager.settings.get("on_close", "ask"))))
+        form.addRow("À la fermeture de Multi OBS", self.on_close)
+        self.taskbar_rename = QCheckBox("Barre des tâches : « OBS Blue — Caméra » avec le logo OBS à la couleur de l'instance")
+        self.taskbar_rename.setChecked(bool(manager.settings.get("taskbar_rename", True)))
+        form.addRow(self.taskbar_rename)
+        general.addWidget(g)
+
+        from .. import APP_VERSION
+        g = QGroupBox("Mises à jour")
+        row = QHBoxLayout(g)
+        self.check_updates = QCheckBox(f"Vérifier au démarrage (version actuelle : {APP_VERSION})")
+        self.check_updates.setChecked(bool(manager.settings.get("check_updates", True)))
+        row.addWidget(self.check_updates, 1)
+        b = QPushButton("Vérifier maintenant")
+        b.clicked.connect(lambda: getattr(main, "updater", None) and main.updater.check_now())
+        row.addWidget(b)
+        general.addWidget(g)
+        general.addStretch(1)
+
+        # ---- Enregistrements : nom des fichiers, conversion, types
+        g = QGroupBox("Fichiers")
         gl = QVBoxLayout(g)
         form = QFormLayout()
         self.template = QLineEdit(manager.settings.get("filename_template") or naming.DEFAULT_TEMPLATE)
-        self.template.setToolTip("{user} = ton nom, {type} = cam / ecran / broll / live, {video} = nom de la vidéo,\n"
+        self.template.setToolTip("{user} = ton nom, {type} = le type de l'instance (cam, ecran, live…), "
+                                 "{video} = nom de la vidéo,\n"
                                  "{date} = date du jour, {time} = heure de début (évite d'écraser une prise)")
         self.template.textChanged.connect(self._refresh_template_preview)
         form.addRow("Modèle de nom", self.template)
@@ -209,9 +251,62 @@ class SettingsDialog(QDialog):
         gl.addWidget(self.trash_mkv)
         self.auto_remux.toggled.connect(self.trash_mkv.setEnabled)
         self.trash_mkv.setEnabled(self.auto_remux.isChecked())
-        lay.addWidget(g)
+        recs.addWidget(g)
 
-        # Caméras virtuelles
+        g = QGroupBox("Types d'enregistrement")
+        gl = QHBoxLayout(g)
+        self.types_list = QListWidget()
+        self.types_list.setMinimumHeight(130)
+        self.types_list.setToolTip("Chaque instance a un type (menu sur sa carte), utilisé dans le nom des fichiers.")
+        for key, label in naming.rec_types(manager.settings):
+            self._add_type_item(label, key)
+        gl.addWidget(self.types_list, 1)
+        col = QVBoxLayout()
+        for text, slot in (("Ajouter…", self._type_add), ("Renommer…", self._type_rename),
+                           ("Supprimer", self._type_remove), ("Par défaut", self._type_reset)):
+            b = QPushButton(text)
+            b.clicked.connect(slot)
+            col.addWidget(b)
+        col.addStretch(1)
+        gl.addLayout(col)
+        recs.addWidget(g)
+        recs.addStretch(1)
+
+        # ---- Aperçu
+        g = QGroupBox("Aperçus des instances")
+        form = QFormLayout(g)
+        form.setVerticalSpacing(10)
+        self.fps = QComboBox()
+        for v, label in PREVIEW_FPS_CHOICES:
+            self.fps.addItem(label, v)
+        self.fps.setCurrentIndex(max(0, self.fps.findData(int(manager.settings["preview_fps"]))))
+        self.fps.currentIndexChanged.connect(lambda: manager.set_preview(fps=self.fps.currentData()))
+        form.addRow("Rafraîchissement", self.fps)
+        self.quality = QComboBox()
+        for v, label in PREVIEW_QUALITY_CHOICES:
+            self.quality.addItem(label, v)
+        self.quality.setCurrentIndex(max(0, self.quality.findData(int(manager.settings.get("preview_divisor", 4)))))
+        self.quality.currentIndexChanged.connect(lambda: manager.set_preview(divisor=self.quality.currentData()))
+        form.addRow("Qualité", self.quality)
+        self.bg_fps = QComboBox()
+        for v, label in PREVIEW_BACKGROUND_CHOICES:
+            self.bg_fps.addItem(label, v)
+        self.bg_fps.setCurrentIndex(max(0, self.bg_fps.findData(
+            int(manager.settings.get("preview_background_fps", -1)))))
+        self.bg_fps.currentIndexChanged.connect(lambda: manager.set_preview(background_fps=self.bg_fps.currentData()))
+        self.bg_fps.setToolTip("Quand une autre appli est au premier plan. Fenêtre réduite, session "
+                               "verrouillée ou écran éteint : les aperçus sont toujours en pause.")
+        form.addRow("Quand Multi OBS est en arrière-plan", self.bg_fps)
+        perf = QLabel("Aperçu sans compression, jamais plus de pixels que l'écran n'en affiche. "
+                      "Pause automatique quand il ne sert à rien, et ralenti tout seul si OBS perd des "
+                      "images. En 1/1 sur un grand aperçu, compte une dizaine d'images/s par instance.")
+        perf.setWordWrap(True)
+        perf.setProperty("muted", True)
+        form.addRow(perf)
+        preview.addWidget(g)
+        preview.addStretch(1)
+
+        # ---- Caméras virtuelles
         g = QGroupBox("Caméras virtuelles")
         gl = QVBoxLayout(g)
         self.vcam_status = QLabel()
@@ -232,48 +327,14 @@ class SettingsDialog(QDialog):
         row.addWidget(b)
         row.addStretch(1)
         gl.addLayout(row)
-        lay.addWidget(g)
+        vcams.addWidget(g)
+        vcams.addStretch(1)
 
-        # Aperçu + raccourcis
-        g = QGroupBox("Aperçu et raccourcis")
+        # ---- Raccourcis
+        g = QGroupBox("Raccourcis clavier globaux")
         form = QFormLayout(g)
         form.setVerticalSpacing(10)
-        self.fps = QComboBox()
-        for v, label in PREVIEW_FPS_CHOICES:
-            self.fps.addItem(label, v)
-        self.fps.setCurrentIndex(max(0, self.fps.findData(int(manager.settings["preview_fps"]))))
-        self.fps.currentIndexChanged.connect(lambda: manager.set_preview(fps=self.fps.currentData()))
-        form.addRow("Rafraîchissement des aperçus", self.fps)
-        self.quality = QComboBox()
-        for v, label in PREVIEW_QUALITY_CHOICES:
-            self.quality.addItem(label, v)
-        self.quality.setCurrentIndex(max(0, self.quality.findData(int(manager.settings.get("preview_divisor", 4)))))
-        self.quality.currentIndexChanged.connect(lambda: manager.set_preview(divisor=self.quality.currentData()))
-        form.addRow("Qualité des aperçus", self.quality)
-        self.bg_fps = QComboBox()
-        for v, label in PREVIEW_BACKGROUND_CHOICES:
-            self.bg_fps.addItem(label, v)
-        self.bg_fps.setCurrentIndex(max(0, self.bg_fps.findData(
-            int(manager.settings.get("preview_background_fps", -1)))))
-        self.bg_fps.currentIndexChanged.connect(lambda: manager.set_preview(background_fps=self.bg_fps.currentData()))
-        self.bg_fps.setToolTip("Quand une autre appli est au premier plan. Fenêtre réduite, session "
-                               "verrouillée ou écran éteint : les aperçus sont toujours en pause.")
-        form.addRow("Quand Multi OBS est en arrière-plan", self.bg_fps)
-        perf = QLabel("Aperçu sans compression, jamais plus de pixels que l'écran n'en affiche. "
-                      "Pause automatique quand il ne sert à rien, et ralenti tout seul si OBS perd des "
-                      "images. En 1/1 sur un grand aperçu, compte une dizaine d'images/s par instance.")
-        perf.setWordWrap(True)
-        perf.setProperty("muted", True)
-        form.addRow(perf)
-        self.on_close = QComboBox()
-        for v, label in (("ask", "Demander"), ("keep", "Laisser tourner les instances"), ("stop", "Tout éteindre")):
-            self.on_close.addItem(label, v)
-        self.on_close.setCurrentIndex(max(0, self.on_close.findData(manager.settings.get("on_close", "ask"))))
-        form.addRow("À la fermeture de Multi OBS", self.on_close)
-        self.taskbar_rename = QCheckBox("Barre des tâches : « OBS Blue — Caméra » avec le logo OBS à la couleur de l'instance")
-        self.taskbar_rename.setChecked(bool(manager.settings.get("taskbar_rename", True)))
-        form.addRow(self.taskbar_rename)
-        self.hk_enabled = QCheckBox("Raccourcis clavier globaux (marchent même si Multi OBS n'est pas au premier plan)")
+        self.hk_enabled = QCheckBox("Activer (ils marchent même si Multi OBS n'est pas au premier plan)")
         self.hk_enabled.setChecked(bool(manager.settings["hotkeys_enabled"]))
         form.addRow(self.hk_enabled)
         self.hk_record = QKeySequenceEdit(QKeySequence(manager.settings["hotkey_record"]))
@@ -282,25 +343,84 @@ class SettingsDialog(QDialog):
             w.setMaximumSequenceLength(1)
         form.addRow("Tout enregistrer / arrêter", self.hk_record)
         form.addRow("Tout mettre en pause / reprendre", self.hk_pause)
-        lay.addWidget(g)
-
-        # Mises à jour
-        from .. import APP_VERSION
-        g = QGroupBox("Mises à jour")
-        row = QHBoxLayout(g)
-        self.check_updates = QCheckBox(f"Vérifier au démarrage (version actuelle : {APP_VERSION})")
-        self.check_updates.setChecked(bool(manager.settings.get("check_updates", True)))
-        row.addWidget(self.check_updates, 1)
-        b = QPushButton("Vérifier maintenant")
-        b.clicked.connect(lambda: getattr(main, "updater", None) and main.updater.check_now())
-        row.addWidget(b)
-        lay.addWidget(g)
+        hint = QLabel("Ils agissent sur les instances liées (Link). Pratique aussi avec un Stream Deck "
+                      "(action « Raccourci clavier »).")
+        hint.setWordWrap(True)
+        hint.setProperty("muted", True)
+        form.addRow(hint)
+        keys.addWidget(g)
+        keys.addStretch(1)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.button(QDialogButtonBox.StandardButton.Close).setText("Fermer")
         buttons.rejected.connect(self.reject)
         lay.addWidget(buttons)
         self._refresh()
+
+    # Types d'enregistrement ---------------------------------------------- #
+    def _add_type_item(self, label: str, key: str | None) -> None:
+        it = QListWidgetItem(label)
+        it.setData(Qt.ItemDataRole.UserRole, key)
+        self.types_list.addItem(it)
+
+    def _type_keys(self, skip=None) -> set:
+        return {naming.type_key(self.types_list.item(i).text()) for i in range(self.types_list.count())
+                if self.types_list.item(i) is not skip}
+
+    def _type_add(self):
+        label, ok = QInputDialog.getText(self, "Nouveau type", "Nom du type (ex. Podcast, Face cam…) :")
+        label = naming.clean(label)
+        if not ok or not label:
+            return
+        if naming.type_key(label) in self._type_keys():
+            QMessageBox.information(self, "Multi OBS", f"Le type « {label} » existe déjà.")
+            return
+        self._add_type_item(label, None)
+
+    def _type_rename(self):
+        it = self.types_list.currentItem()
+        if not it:
+            return
+        label, ok = QInputDialog.getText(self, "Renommer le type", "Nouveau nom :", text=it.text())
+        label = naming.clean(label)
+        if not ok or not label:
+            return
+        if naming.type_key(label) in self._type_keys(skip=it):
+            QMessageBox.information(self, "Multi OBS", f"Le type « {label} » existe déjà.")
+            return
+        it.setText(label)
+
+    def _type_remove(self):
+        it = self.types_list.currentItem()
+        if not it:
+            return
+        if self.types_list.count() <= 1:
+            QMessageBox.information(self, "Multi OBS", "Il faut garder au moins un type.")
+            return
+        self.types_list.takeItem(self.types_list.row(it))
+
+    def _type_reset(self):
+        self.types_list.clear()
+        for key, label in naming.DEFAULT_REC_TYPES:
+            self._add_type_item(label, key)
+
+    def _save_types(self) -> None:
+        types, seen, renamed = [], set(), {}
+        for i in range(self.types_list.count()):
+            it = self.types_list.item(i)
+            label = it.text().strip()
+            key = naming.type_key(label)
+            if not label or key in seen:
+                continue
+            seen.add(key)
+            types.append([key, label])
+            old = it.data(Qt.ItemDataRole.UserRole)
+            if old and old != key:
+                renamed[old] = key
+        self.manager.settings["rec_types"] = types or [list(t) for t in naming.DEFAULT_REC_TYPES]
+        for inst in self.manager.instances:   # type renommé : les instances suivent
+            if inst.rec_type in renamed:
+                inst.rec_type = renamed[inst.rec_type]
 
     def _refresh_template_preview(self):
         s = self.manager.settings
@@ -365,14 +485,23 @@ class SettingsDialog(QDialog):
             else:
                 QMessageBox.information(self, "Multi OBS", "Caméras virtuelles installées.\n"
                                         "Redémarre les instances et les applis (Discord…) qui doivent les voir.")
+        # De nouveau gérées par Multi OBS : réinstallées à l'allumage et si elles disparaissent.
+        self.manager.settings["vcam_scope"] = vcam.SCOPE_USER
+        self.manager.save()
+        watch = getattr(self.main, "_vcam_watch", None)
+        if watch is not None:
+            watch.start()
         colors = {i.vcam: i.color for i in self.manager.instances}
         run_task(self, "Caméras virtuelles", lambda _p: vcam.install(indices, vcam.SCOPE_USER, colors),
                  on_done=done)
 
     def _uninstall_vcams(self):
         r = QMessageBox.question(self, "Multi OBS", "Désinstaller toutes les caméras virtuelles de Multi OBS ?\n"
-                                 "(la caméra « OBS Virtual Camera » d'OBS n'est pas touchée)")
+                                 "(la caméra « OBS Virtual Camera » d'OBS n'est pas touchée)\n\n"
+                                 "Elles ne reviendront qu'avec « Installer / réparer ».")
         if r == QMessageBox.StandardButton.Yes:
+            self.manager.settings["vcam_scope"] = "none"   # sinon réinstallées au prochain allumage
+            self.manager.save()
             vcam.uninstall(list(range(1, obsfiles.MAX_VCAM + 1)))
             self._refresh()
 
@@ -386,6 +515,7 @@ class SettingsDialog(QDialog):
         s["on_close"] = self.on_close.currentData()
         s["check_updates"] = self.check_updates.isChecked()
         s["trash_mkv_after_remux"] = self.trash_mkv.isChecked()
+        self._save_types()
         self.manager.set_naming(template=self.template.text().strip())  # enregistre + applique
         self.hotkeysChanged.emit()
         super().done(r)

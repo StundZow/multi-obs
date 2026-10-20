@@ -1,9 +1,10 @@
 """Nom des fichiers d'enregistrement : NOM-TYPE-VIDEO-DATE, appliqué à toutes les instances."""
 import re
 import time
+import unicodedata
 
-REC_TYPES = [("cam", "Cam"), ("ecran", "Écran"), ("broll", "B-roll"), ("live", "Live")]
-REC_TYPE_LABELS = dict(REC_TYPES)
+# Types d'enregistrement par défaut (modifiables dans les paramètres) : (clé du nom de fichier, libellé).
+DEFAULT_REC_TYPES = [("cam", "Cam"), ("ecran", "Écran"), ("live", "Live")]
 DEFAULT_TEMPLATE = "{user}-{type}-{video}-{date}_{time}"
 
 # Équivalents des marqueurs de date d'OBS, pour l'aperçu.
@@ -15,15 +16,39 @@ def clean(text: str) -> str:
     return re.sub(r'[\\/:*?"<>|%]+', "", text).strip()
 
 
-def guess_type(name: str) -> str:
-    n = name.lower()
-    if "ecran" in n or "écran" in n or "screen" in n:
-        return "ecran"
-    if "broll" in n or "b-roll" in n:
-        return "broll"
-    if "live" in n or "stream" in n:
-        return "live"
-    return "cam"
+def type_key(label: str) -> str:
+    """Libellé -> clé utilisée dans le nom des fichiers : « Écran » -> « ecran », « Face cam » -> « face-cam »."""
+    s = unicodedata.normalize("NFKD", label).encode("ascii", "ignore").decode("ascii").lower()
+    s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
+    return s or "type"
+
+
+def rec_types(settings: dict | None) -> list[tuple[str, str]]:
+    """Types définis par l'utilisateur (ou ceux par défaut)."""
+    out = []
+    for item in (settings or {}).get("rec_types") or []:
+        if isinstance(item, (list, tuple)) and len(item) == 2 and item[0] and item[1]:
+            out.append((str(item[0]), str(item[1])))
+    return out or list(DEFAULT_REC_TYPES)
+
+
+def type_label(key: str, settings: dict | None) -> str:
+    return dict(rec_types(settings)).get(key, key)
+
+
+def guess_type(name: str, settings: dict | None = None) -> str:
+    """Type le plus probable d'après le nom de l'instance (« Écran 2 » -> écran)."""
+    types = rec_types(settings)
+    n = type_key(name)
+    for key, label in types:
+        if key in n or type_key(label) in n:
+            return key
+    synonyms = {"ecran": ("screen", "desktop", "bureau"), "live": ("stream", "twitch", "direct"),
+                "cam": ("webcam", "camera", "face")}
+    for key, words in synonyms.items():
+        if any(w in n for w in words) and key in dict(types):
+            return key
+    return types[0][0]
 
 
 def _collapse(s: str) -> str:

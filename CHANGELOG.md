@@ -3,6 +3,22 @@
 Chaque version publiée avec `python release.py X.Y.Z` reprend la section correspondante :
 c'est ce texte que Multi OBS affiche quand il propose la mise à jour.
 
+## 1.0.3
+
+- **Crée tes propres types d'enregistrement** : Paramètres → Enregistrements → Ajouter, Renommer,
+  Supprimer (Cam, Écran et Live par défaut). B-roll n'est plus proposé ; une instance qui l'utilisait le garde.
+- **Link** (icône chaîne) remplace la case « Synchro » : une instance liée suit les boutons du haut
+  et les raccourcis, une instance déliée reste à part (pratique pour le live).
+- **Icône dossier** à droite des boutons de chaque instance : ouvre son dossier d'enregistrement.
+- Une instance allumée affiche **« Actif »** (au lieu de « Prête »).
+- **Caméras virtuelles plus fiables** : si elles disparaissent de Windows, Multi OBS les remet tout seul
+  (au démarrage, puis chaque minute) au lieu d'attendre le prochain allumage des instances.
+  « Désinstaller » dans les paramètres est maintenant définitif, jusqu'à « Installer / réparer ».
+- **Paramètres en onglets** (Général, Enregistrements, Aperçu, Caméras virtuelles, Raccourcis) :
+  la fenêtre tient sur un écran 1080p.
+- Le changelog de la fenêtre de mise à jour est lisible (il s'affichait en blanc sur blanc).
+- Boutons des instances moins serrés : « Reprendre » n'est plus coupé.
+
 ## 1.0.2
 
 - Nouveau type d'enregistrement **Live** (en plus de Cam, Écran et B-roll) pour le nom des fichiers.

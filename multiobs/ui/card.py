@@ -1,12 +1,13 @@
 """Carte d'une instance : aperçu, audio, état et commandes."""
 import os
 
-from PySide6.QtCore import QSize, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel, QMenu, QMessageBox,
                                QPushButton, QToolButton, QVBoxLayout, QWidget)
 
 from .. import naming, theme
 from ..controller import InstanceController
+from ..instance_config import record_directory
 from ..theme import YAMI
 from .widgets import DiskBar, MeterWidget, PreviewWidget, color_dot, human_size, icon
 
@@ -56,8 +57,6 @@ class InstanceCard(QFrame):
         self.vcam_btn.clicked.connect(ctrl.toggle_vcam)
         self.type_combo = QComboBox(objectName="typeCombo")
         self.type_combo.setToolTip("Type d'enregistrement (utilisé dans le nom des fichiers)")
-        for key, label in naming.REC_TYPES:
-            self.type_combo.addItem(label, key)
         self.type_combo.currentIndexChanged.connect(
             lambda: self.recTypeChanged.emit(self.ctrl.inst.id, self.type_combo.currentData()))
         self.menu_btn = QToolButton()
@@ -108,15 +107,28 @@ class InstanceCard(QFrame):
         self.rec_btn.clicked.connect(ctrl.toggle_record)
         self.pause_btn = self._button("pause.svg", "Pause", "Mettre en pause / reprendre l'enregistrement")
         self.pause_btn.clicked.connect(self._pause_clicked)
-        self.include = QCheckBox("Synchro")
-        self.include.setToolTip("Cochée : cette instance suit les boutons « Tout enregistrer » / « Tout en pause »\n"
-                                "et les raccourcis clavier. Décoche-la pour la piloter à part (ex. l'OBS du live).")
-        self.include.toggled.connect(lambda v: self.includeChanged.emit(self.ctrl.inst.id, v))
+        self.folder_btn = QToolButton(objectName="flatIcon")
+        self.folder_btn.setIcon(icon("folder.svg"))
+        self.folder_btn.setIconSize(QSize(18, 18))
+        self.folder_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.folder_btn.setToolTip("Ouvrir le dossier des enregistrements de cette instance")
+        self.folder_btn.clicked.connect(self._open_record_folder)
+        # Link : l'instance suit les boutons du haut (Tout enregistrer / Tout en pause) et les raccourcis.
+        self.include = QToolButton(objectName="linkToggle")
+        self.include.setText("Link")
+        self.include.setCheckable(True)
+        self.include.setIconSize(QSize(16, 16))
+        self.include.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.include.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.include.setToolTip("Lié : cette instance suit les boutons « Tout enregistrer » / « Tout en pause »\n"
+                                "et les raccourcis clavier. Délie-la pour la piloter à part (ex. l'OBS du live).")
+        self.include.toggled.connect(self._link_toggled)
         row.addWidget(self.power_btn)
         row.addWidget(self.show_btn)
         row.addSpacing(8)
         row.addWidget(self.rec_btn)
         row.addWidget(self.pause_btn)
+        row.addWidget(self.folder_btn)
         row.addStretch(1)
         row.addWidget(self.include)
         body.addLayout(row)
@@ -161,6 +173,30 @@ class InstanceCard(QFrame):
         self.act_rec_folder.setEnabled(self.ctrl.connected)
         self.act_preview.setText("Afficher l'aperçu" if self.ctrl.inst.preview_hidden else "Masquer l'aperçu")
 
+    def _link_toggled(self, linked: bool) -> None:
+        self.include.setIcon(icon("link.svg" if linked else "link-off.svg"))
+        self.includeChanged.emit(self.ctrl.inst.id, linked)
+
+    def _open_record_folder(self) -> None:
+        if self.ctrl.connected:
+            self.ctrl.open_record_folder()   # dossier du profil OBS actif
+            return
+        folder = record_directory(self.ctrl.inst)
+        if folder.is_dir():
+            os.startfile(folder)
+
+    def reload_types(self) -> None:
+        """(Re)remplit le menu des types d'enregistrement (modifiables dans les paramètres)."""
+        inst = self.ctrl.inst
+        self.type_combo.blockSignals(True)
+        self.type_combo.clear()
+        for key, label in naming.rec_types(self.ctrl.settings):
+            self.type_combo.addItem(label, key)
+        if self.type_combo.findData(inst.rec_type) < 0:   # type supprimé depuis : on le garde affiché
+            self.type_combo.addItem(inst.rec_type, inst.rec_type)
+        self.type_combo.setCurrentIndex(max(0, self.type_combo.findData(inst.rec_type)))
+        self.type_combo.blockSignals(False)
+
     def _set_preview_hidden(self, hidden: bool) -> None:
         self.preview.set_collapsed(hidden)
         self.previewHiddenChanged.emit(self.ctrl.inst.id, hidden)
@@ -180,10 +216,9 @@ class InstanceCard(QFrame):
                                  "(pour Discord, ou comme source dans une autre instance)")
         self.include.blockSignals(True)
         self.include.setChecked(inst.include_global)
+        self.include.setIcon(icon("link.svg" if inst.include_global else "link-off.svg"))
         self.include.blockSignals(False)
-        self.type_combo.blockSignals(True)
-        self.type_combo.setCurrentIndex(max(0, self.type_combo.findData(inst.rec_type)))
-        self.type_combo.blockSignals(False)
+        self.reload_types()
         self.preview.set_collapsed(inst.preview_hidden)
 
     # ------------------------------------------------------------------ #
@@ -251,7 +286,7 @@ class InstanceCard(QFrame):
             elif c.streaming:
                 self._set_chip("LIVE", "live")
             else:
-                self._set_chip("Prête", "ready")
+                self._set_chip("Actif", "ready")
 
         badges = []
         if c.recording:

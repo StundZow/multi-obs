@@ -139,6 +139,12 @@ QGroupBox {{ border: 1px solid {y['grey5']}; border-radius: 6px; margin-top: 14p
 QGroupBox::title {{ subcontrol-origin: margin; left: 10px; padding: 0 4px; color: {y['white5']}; }}
 
 QProgressBar {{ background: {y['grey4']}; border: none; border-radius: 4px; text-align: center; min-height: 16px; }}
+QTextBrowser, QTextEdit, QPlainTextEdit, QListWidget {{
+    background: {y['grey8']}; border: 1px solid {y['grey5']}; border-radius: 4px; padding: 6px;
+    selection-background-color: {y['blue3']};
+}}
+QListWidget::item {{ padding: 4px 6px; border-radius: 3px; }}
+QListWidget::item:selected {{ background: {y['blue3']}; }}
 QProgressBar::chunk {{ background: {y['blue3']}; border-radius: 4px; }}
 
 QFrame#instanceCard {{ background: {y['grey6']}; border: 1px solid {y['grey5']}; border-radius: 6px; }}
@@ -153,6 +159,17 @@ QLabel#chip[state="busy"] {{ background: {y['blue4']}; color: white; }}
 QLabel#warning {{ color: {y['yellow2']}; font-size: 9pt; }}
 QLabel#stats {{ color: {y['white5']}; font-size: 8.5pt; }}
 
+QTabWidget::pane {{ border: 1px solid {y['grey5']}; border-radius: 6px; top: -1px; background: {y['grey7']}; }}
+QTabBar::tab {{ background: {y['grey6']}; color: {y['white4']}; border: 1px solid {y['grey5']}; padding: 6px 14px;
+               margin-right: 3px; border-top-left-radius: 4px; border-top-right-radius: 4px; }}
+QTabBar::tab:selected {{ background: {y['blue3']}; border-color: {y['blue2']}; color: {y['white1']}; }}
+QTabBar::tab:hover:!selected {{ background: {y['grey4']}; color: {y['white1']}; }}
+QFrame#instanceCard QPushButton {{ padding: 5px 8px; }}
+QToolButton#flatIcon {{ background: transparent; border: none; padding: 3px; }}
+QToolButton#flatIcon:hover {{ background: rgba(255, 255, 255, 0.08); border-radius: 4px; }}
+QToolButton#linkToggle {{ background: transparent; border: none; padding: 3px 4px; color: {y['white5']}; font-weight: 600; }}
+QToolButton#linkToggle:checked {{ background: transparent; color: {y['white1']}; }}
+QToolButton#linkToggle:hover {{ color: {y['white1']}; background: rgba(255, 255, 255, 0.06); border-radius: 4px; }}
 QPushButton#vcamToggle {{ padding: 2px 8px; min-height: 16px; font-size: 9pt; }}
 QComboBox#typeCombo {{ padding: 2px 6px; min-height: 16px; font-size: 9pt; }}
 QFrame#namingBar {{ background: {y['grey7']}; border-bottom: 1px solid {y['grey8']}; }}
