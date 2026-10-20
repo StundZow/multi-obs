@@ -29,7 +29,7 @@ Parce que deux OBS lancés normalement partagent le même dossier de configurati
 - 🧩 **Instances indépendantes** — scènes, profils, plugins et réglages séparés ; aucune ne peut faire planter les autres
 - 🔗 **Pilotage global** — tout allumer, tout enregistrer, tout mettre en pause d'un clic ; une instance déliée (**Link**) reste à part, pratique pour le live
 - 👀 **Aperçu en direct sans compression**, vumètres audio, images perdues, CPU, et alertes (pas de son, disque presque plein, OBS qui attend une réponse)
-- 🗂️ **Instances réduites** — le bouton **—** range une instance dont tu ne te sers pas (l'OBS du live…) dans une barre en bas, avec son état ; **Remettre** la ramène parmi les autres
+- 🗂️ **Instances réduites** — le bouton **œil barré** range une instance dont tu ne te sers pas (l'OBS du live…) dans une barre en bas, avec son état ; **Remettre** la ramène parmi les autres
 - 🎥 **Une caméra virtuelle par instance** — « OBS Virtual Camera 1, 2, 3… » pour Discord, Zoom ou une autre instance, sans droits administrateur
 - 🏷️ **Nommage automatique** — `Nom-type-Vidéo-date_heure`, avec tes propres types (Cam, Écran et Live par défaut)
 - 🎞️ **MKV → MP4 automatique** à la fin du rec, et option pour mettre le MKV à la corbeille une fois le MP4 vérifié
@@ -51,7 +51,7 @@ Parce que deux OBS lancés normalement partagent le même dossier de configurati
 3. **Nouvelle instance** : un nom, une couleur, un type. « Partir de mes scènes et réglages OBS actuels » copie ta config OBS — ton OBS habituel n'est pas modifié.
 4. **Voir OBS** pour régler les scènes de l'instance, puis pilote tout depuis Multi OBS : **Rec**, **Pause**, **VCam**, et les boutons du haut pour toutes les instances liées.
 5. Remplis **Nom** et **Vidéo** en haut : chaque fichier s'appellera par exemple `Stund-cam-Tuto-2026-10-20_17-49-50.mp4`.
-6. Une instance ne sert pas aujourd'hui (l'OBS du live…) ? Le bouton **—** de sa carte la range en bas, avec son état ; **Remettre** la ramène :
+6. Une instance ne sert pas aujourd'hui (l'OBS du live…) ? Le bouton **œil barré** de sa carte la range en bas, avec son état ; **Remettre** la ramène :
 
 <div align="center">
 <img src="screenshots/09_minimized.png" width="680" alt="Barre des instances réduites">

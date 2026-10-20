@@ -3,6 +3,11 @@
 Chaque version publiée avec `python release.py X.Y.Z` reprend la section correspondante :
 c'est ce texte que Multi OBS affiche quand il propose la mise à jour.
 
+## 1.0.5
+
+- Le bouton qui range une instance dans la barre « Instances réduites » a une icône plus parlante :
+  un **œil barré** (« masquer »), à la place du petit trait.
+
 ## 1.0.4
 
 - **Réduire une instance** : le bouton **—** en haut de sa carte la range dans la barre

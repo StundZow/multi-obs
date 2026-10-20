@@ -80,10 +80,10 @@ class InstanceCard(QFrame):
         self.menu_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.menu_btn.setToolTip("Plus d'options")
         self.min_btn = QToolButton(objectName="flatIcon")
-        self.min_btn.setIcon(icon("minimize.svg"))
+        self.min_btn.setIcon(icon("eye-off.svg"))
         self.min_btn.setIconSize(QSize(16, 16))
         self.min_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.min_btn.setToolTip("Réduire : ranger cette instance dans la barre du bas\n"
+        self.min_btn.setToolTip("Masquer : ranger cette instance dans la barre du bas\n"
                                 "(elle continue de tourner si elle est allumée)")
         self.min_btn.clicked.connect(lambda: self.minimizeRequested.emit(self.ctrl.inst.id))
         head.addWidget(self.dot)
@@ -186,7 +186,7 @@ class InstanceCard(QFrame):
         m.addSeparator()
         m.addAction("Déplacer à gauche", lambda: self.moveRequested.emit(self.ctrl.inst.id, -1))
         m.addAction("Déplacer à droite", lambda: self.moveRequested.emit(self.ctrl.inst.id, 1))
-        m.addAction("Réduire dans la barre du bas", lambda: self.minimizeRequested.emit(self.ctrl.inst.id))
+        m.addAction("Masquer dans la barre du bas", lambda: self.minimizeRequested.emit(self.ctrl.inst.id))
         m.addSeparator()
         self.act_kill = m.addAction("Forcer l'arrêt (si OBS ne répond plus)", self.ctrl.kill)
         m.addAction("Supprimer l'instance…", lambda: self.deleteRequested.emit(self.ctrl.inst.id))
