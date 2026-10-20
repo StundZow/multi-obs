@@ -37,6 +37,19 @@ DEFAULT_SETTINGS = {
 }
 
 
+SETTINGS_VERSION = 2
+
+
+def _migrate_v1(s: dict) -> None:
+    """Réglages de la 1.0.0 / 1.0.1 : les valeurs restées sur les anciens défauts passent aux nouveaux
+    (aperçu 60 i/s en 1/4, identique en arrière-plan ; raccourcis globaux désactivés)."""
+    if (s.get("preview_fps"), s.get("preview_divisor"), s.get("preview_background_fps")) in \
+            ((30, 2, 5), (30, 2, None)):
+        s["preview_fps"], s["preview_divisor"], s["preview_background_fps"] = 60, 4, -1
+    if s.get("hotkeys_enabled") is True:
+        s["hotkeys_enabled"] = False
+
+
 def _slugify(name: str) -> str:
     s = re.sub(r"[^A-Za-z0-9_-]+", "_", name).strip("_")
     return s or "preconfig"
@@ -63,11 +76,18 @@ class Manager(QObject):
             data = json.loads(paths.STATE_FILE.read_text("utf-8"))
         except (OSError, ValueError):
             return
-        self.settings.update(data.get("settings") or {})
+        saved = data.get("settings") or {}
+        migrate = data.get("settings_version", 1) < SETTINGS_VERSION
+        if migrate:
+            _migrate_v1(saved)
+        self.settings.update(saved)
         self.instances = [InstanceDef.from_dict(d) for d in data.get("instances") or []]
+        if migrate:
+            self.save()
 
     def save(self) -> None:
-        data = {"settings": self.settings, "instances": [i.to_dict() for i in self.instances]}
+        data = {"settings_version": SETTINGS_VERSION, "settings": self.settings,
+                "instances": [i.to_dict() for i in self.instances]}
         tmp = paths.STATE_FILE.with_suffix(".tmp")
         tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), "utf-8")
         tmp.replace(paths.STATE_FILE)

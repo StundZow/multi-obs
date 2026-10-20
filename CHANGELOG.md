@@ -7,6 +7,8 @@ c'est ce texte que Multi OBS affiche quand il propose la mise à jour.
 
 - Nouveau type d'enregistrement **Live** (en plus de Cam, Écran et B-roll) pour le nom des fichiers.
 - Les raccourcis clavier globaux sont **désactivés par défaut** (à activer dans les paramètres).
+- En venant de la 1.0.0 / 1.0.1, les réglages restés sur les anciens défauts passent aux nouveaux
+  (aperçu 60 i/s en 1/4, identique en arrière-plan, raccourcis désactivés). Tes choix perso sont gardés.
 - Fermeture de Multi OBS avec des instances allumées : case **« Se souvenir de mon choix »**, et réglage
   « À la fermeture de Multi OBS » dans les paramètres (Demander / Laisser tourner / Tout éteindre).
 - Installateur : options **Ajouter au menu Démarrer** et **Raccourci sur le bureau** (cochées par défaut).
