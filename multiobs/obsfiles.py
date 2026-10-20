@@ -218,7 +218,7 @@ def build_tree(inst_dir: Path, vcam: int, progress: Progress) -> None:
     progress(total, total, "Instance prête")
 
 
-def build_vcam_modules(n: int) -> Path:
+def build_vcam_modules(n: int, color: str | None = None) -> Path:
     """Écrit les modules DirectShow patchés de la caméra n dans data/vcam/n."""
     src = paths.RUNTIME / MODULE_DIR_REL
     out = paths.VCAM / str(n)
@@ -233,6 +233,20 @@ def build_vcam_modules(n: int) -> Path:
             # DLL chargée par une appli (Discord…) : on ne la remplace que si elle a changé.
             if target.read_bytes() != patched:
                 raise
-    if (src / "placeholder.png").exists():
-        shutil.copy2(src / "placeholder.png", out / "placeholder.png")
+    set_vcam_placeholder(n, color)
     return out
+
+
+def set_vcam_placeholder(n: int, color: str | None) -> None:
+    """Image affichée par la caméra virtuelle quand elle est éteinte, à la couleur de l'instance."""
+    out = paths.VCAM / str(n)
+    if not out.exists():
+        return
+    colored = paths.ASSETS / "placeholders" / f"{color}.png" if color else None
+    src = colored if colored and colored.exists() else paths.RUNTIME / MODULE_DIR_REL / "placeholder.png"
+    target = out / "placeholder.png"
+    try:
+        if src.exists() and (not target.exists() or target.read_bytes() != src.read_bytes()):
+            shutil.copyfile(src, target)
+    except OSError:
+        pass   # fichier ouvert par une appli : il sera mis à jour la prochaine fois

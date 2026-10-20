@@ -2,7 +2,7 @@
 import re
 import time
 
-REC_TYPES = [("cam", "Cam"), ("ecran", "Écran"), ("broll", "B-roll")]
+REC_TYPES = [("cam", "Cam"), ("ecran", "Écran"), ("broll", "B-roll"), ("live", "Live")]
 REC_TYPE_LABELS = dict(REC_TYPES)
 DEFAULT_TEMPLATE = "{user}-{type}-{video}-{date}_{time}"
 
@@ -21,6 +21,8 @@ def guess_type(name: str) -> str:
         return "ecran"
     if "broll" in n or "b-roll" in n:
         return "broll"
+    if "live" in n or "stream" in n:
+        return "live"
     return "cam"
 
 

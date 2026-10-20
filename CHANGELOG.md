@@ -3,6 +3,17 @@
 Chaque version publiée avec `python release.py X.Y.Z` reprend la section correspondante :
 c'est ce texte que Multi OBS affiche quand il propose la mise à jour.
 
+## 1.0.2
+
+- Nouveau type d'enregistrement **Live** (en plus de Cam, Écran et B-roll) pour le nom des fichiers.
+- Les raccourcis clavier globaux sont **désactivés par défaut** (à activer dans les paramètres).
+- Fermeture de Multi OBS avec des instances allumées : case **« Se souvenir de mon choix »**, et réglage
+  « À la fermeture de Multi OBS » dans les paramètres (Demander / Laisser tourner / Tout éteindre).
+- Installateur : options **Ajouter au menu Démarrer** et **Raccourci sur le bureau** (cochées par défaut).
+  Corrige les raccourcis qui n'étaient pas créés en 1.0.0 / 1.0.1.
+- Quand une caméra virtuelle est éteinte, son image d'attente prend **la couleur de son instance**
+  (dans Discord, OBS…). Redémarre l'appli qui l'affiche pour voir la nouvelle image.
+
 ## 1.0.1
 
 - **Un seul fichier à télécharger** : l'installateur contient Multi OBS. Les mises à jour passent par lui.

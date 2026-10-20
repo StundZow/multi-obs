@@ -81,10 +81,10 @@ def _run_reg_import(content: str, elevated: bool) -> None:
         pass
 
 
-def install(indices: list[int], scope: str = SCOPE_USER) -> list[int]:
+def install(indices: list[int], scope: str = SCOPE_USER, colors: dict[int, str] | None = None) -> list[int]:
     """Prépare les modules et enregistre les caméras. Renvoie celles qui ont échoué."""
     for n in indices:
-        obsfiles.build_vcam_modules(n)
+        obsfiles.build_vcam_modules(n, (colors or {}).get(n))
     _run_reg_import(_reg_file(indices, scope, remove=False), elevated=(scope == SCOPE_MACHINE))
     return [n for n in indices if not is_registered(n)]
 

@@ -27,7 +27,7 @@ class InstanceDef:
     start_minimized: bool = True
     include_global: bool = True
     needs_default_audio: bool = False   # instance vierge : ajouter Audio du bureau + Micro
-    rec_type: str = "cam"               # cam / ecran / broll, utilisé dans le nom des fichiers
+    rec_type: str = "cam"               # cam / ecran / broll / live, utilisé dans le nom des fichiers
     preview_hidden: bool = False        # aperçu masqué sur la carte (aucune ressource utilisée)
 
     @property

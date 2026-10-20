@@ -189,7 +189,7 @@ class SettingsDialog(QDialog):
         gl = QVBoxLayout(g)
         form = QFormLayout()
         self.template = QLineEdit(manager.settings.get("filename_template") or naming.DEFAULT_TEMPLATE)
-        self.template.setToolTip("{user} = ton nom, {type} = cam / ecran / broll, {video} = nom de la vidéo,\n"
+        self.template.setToolTip("{user} = ton nom, {type} = cam / ecran / broll / live, {video} = nom de la vidéo,\n"
                                  "{date} = date du jour, {time} = heure de début (évite d'écraser une prise)")
         self.template.textChanged.connect(self._refresh_template_preview)
         form.addRow("Modèle de nom", self.template)
@@ -265,6 +265,11 @@ class SettingsDialog(QDialog):
         perf.setWordWrap(True)
         perf.setProperty("muted", True)
         form.addRow(perf)
+        self.on_close = QComboBox()
+        for v, label in (("ask", "Demander"), ("keep", "Laisser tourner les instances"), ("stop", "Tout éteindre")):
+            self.on_close.addItem(label, v)
+        self.on_close.setCurrentIndex(max(0, self.on_close.findData(manager.settings.get("on_close", "ask"))))
+        form.addRow("À la fermeture de Multi OBS", self.on_close)
         self.taskbar_rename = QCheckBox("Barre des tâches : « OBS Blue — Caméra » avec le logo OBS à la couleur de l'instance")
         self.taskbar_rename.setChecked(bool(manager.settings.get("taskbar_rename", True)))
         form.addRow(self.taskbar_rename)
@@ -360,7 +365,9 @@ class SettingsDialog(QDialog):
             else:
                 QMessageBox.information(self, "Multi OBS", "Caméras virtuelles installées.\n"
                                         "Redémarre les instances et les applis (Discord…) qui doivent les voir.")
-        run_task(self, "Caméras virtuelles", lambda _p: vcam.install(indices, vcam.SCOPE_USER), on_done=done)
+        colors = {i.vcam: i.color for i in self.manager.instances}
+        run_task(self, "Caméras virtuelles", lambda _p: vcam.install(indices, vcam.SCOPE_USER, colors),
+                 on_done=done)
 
     def _uninstall_vcams(self):
         r = QMessageBox.question(self, "Multi OBS", "Désinstaller toutes les caméras virtuelles de Multi OBS ?\n"
@@ -376,6 +383,7 @@ class SettingsDialog(QDialog):
         s["hotkey_pause"] = self.hk_pause.keySequence().toString(QKeySequence.SequenceFormat.PortableText)
         s["auto_remux"] = self.auto_remux.isChecked()
         s["taskbar_rename"] = self.taskbar_rename.isChecked()
+        s["on_close"] = self.on_close.currentData()
         s["check_updates"] = self.check_updates.isChecked()
         s["trash_mkv_after_remux"] = self.trash_mkv.isChecked()
         self.manager.set_naming(template=self.template.text().strip())  # enregistre + applique

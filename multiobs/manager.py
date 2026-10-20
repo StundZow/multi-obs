@@ -22,8 +22,9 @@ DEFAULT_SETTINGS = {
     "preview_background_fps": -1,     # -1 : comme au premier plan
     "taskbar_rename": True,
     "check_updates": True,
+    "on_close": "ask",                # instances allumées à la fermeture : ask / keep / stop
     "skipped_version": "",
-    "hotkeys_enabled": True,
+    "hotkeys_enabled": False,        # raccourcis globaux : à activer dans les paramètres
     "hotkey_record": "Ctrl+Alt+R",
     "hotkey_pause": "Ctrl+Alt+P",
     "vcam_scope": vcam.SCOPE_USER,
@@ -197,6 +198,7 @@ class Manager(QObject):
                 self.instances[idx] = inst
         self.save()
         self.controllers[inst.id].update_definition(inst)
+        obsfiles.set_vcam_placeholder(inst.vcam, inst.color)   # couleur de la caméra virtuelle éteinte
         if inst.config_dir.exists():
             ensure_config(inst, None, self.filename_format(inst), bool(self.settings.get("auto_remux", True)))
         self.instancesChanged.emit()
@@ -243,10 +245,13 @@ class Manager(QObject):
                 obsfiles.build_tree(inst.dir, inst.vcam, progress)
             ensure_config(inst, (import_from or {}).get(inst.id), self.filename_format(inst),
                           bool(self.settings.get("auto_remux", True)))
+        colors = {i.vcam: i.color for i in insts}
         missing = [i.vcam for i in insts if not vcam.is_registered(i.vcam)]
+        for inst in insts:
+            obsfiles.set_vcam_placeholder(inst.vcam, inst.color)
         if missing and self.settings.get("vcam_scope") == vcam.SCOPE_USER:
             progress(0, 0, "Installation des caméras virtuelles…")
-            return vcam.install(sorted(set(missing)), vcam.SCOPE_USER)
+            return vcam.install(sorted(set(missing)), vcam.SCOPE_USER, colors)
         return sorted(set(missing))
 
     def update_obs(self, progress) -> None:
@@ -258,9 +263,9 @@ class Manager(QObject):
         for inst in self.instances:
             obsfiles.build_tree(inst.dir, inst.vcam, progress)
             ensure_config(inst, None, self.filename_format(inst), bool(self.settings.get("auto_remux", True)))
-        regs = [i.vcam for i in self.instances if vcam.registered_scope(i.vcam)]
-        for n in regs:
-            obsfiles.build_vcam_modules(n)
+        for inst in self.instances:
+            if vcam.registered_scope(inst.vcam):
+                obsfiles.build_vcam_modules(inst.vcam, inst.color)
 
     # ------------------------------------------------------------------ #
     # Préconfigs

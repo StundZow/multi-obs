@@ -32,13 +32,18 @@ def _ps_str(s: str) -> str:
     return "'" + s.replace("'", "''") + "'"
 
 
-def create_shortcuts(exe: Path, desktop: bool) -> bool:
-    folders = ["[Environment]::GetFolderPath('Programs')"]
+def create_shortcuts(exe: Path, desktop: bool, start_menu: bool = True) -> bool:
+    folders = []
+    if start_menu:
+        folders.append("[Environment]::GetFolderPath('Programs')")
     if desktop:
         folders.append("[Environment]::GetFolderPath('Desktop')")
+    if not folders:
+        return True
     script = "$w = New-Object -ComObject WScript.Shell; "
     for folder in folders:
-        script += (f"$s = $w.CreateShortcut((Join-Path {folder} {_ps_str(SHORTCUT_NAME)})); "
+        # Parenthèses obligatoires : sans elles PowerShell passe « [Environment]::… » comme du texte.
+        script += (f"$s = $w.CreateShortcut((Join-Path ({folder}) {_ps_str(SHORTCUT_NAME)})); "
                    f"$s.TargetPath = {_ps_str(str(exe))}; $s.WorkingDirectory = {_ps_str(str(exe.parent))}; "
                    f"$s.IconLocation = {_ps_str(str(exe) + ',0')}; $s.Description = 'Multi OBS'; $s.Save(); ")
     return _ps(script)

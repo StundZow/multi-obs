@@ -43,13 +43,14 @@ Sur chaque carte d'instance :
 | **Voir OBS** | Ouvre la fenêtre OBS de l'instance, pour régler scènes et sources |
 | **Rec / Pause** | Enregistrement de cette instance seulement |
 | **VCam N** | Allume / éteint sa caméra virtuelle « OBS Virtual Camera N » |
-| **Cam / Écran / B-roll** | Type de l'instance, utilisé dans le nom des fichiers |
+| **Cam / Écran / B-roll / Live** | Type de l'instance, utilisé dans le nom des fichiers |
 | **Synchro** | Cochée : l'instance suit « Tout enregistrer », « Tout en pause » et les raccourcis |
 | Aperçu, vumètres | Image en direct, niveaux audio (clic sur l'icône = couper), images perdues, CPU |
 | Bas de carte | Espace libre du disque (barre rouge sous 200 Go), fichier ou dossier d'enregistrement |
 
-**Raccourcis globaux** (même si Multi OBS n'est pas au premier plan) : `Ctrl+Alt+R` pour tout
-enregistrer ou arrêter, `Ctrl+Alt+P` pour tout mettre en pause ou reprendre. Modifiables dans ⚙.
+**Raccourcis globaux** (désactivés par défaut, à activer dans ⚙ ; ils marchent même si Multi OBS n'est
+pas au premier plan) : `Ctrl+Alt+R` pour tout enregistrer ou arrêter, `Ctrl+Alt+P` pour tout mettre en
+pause ou reprendre. Modifiables dans ⚙.
 
 **Barre des tâches** : chaque instance s'appelle « OBS Blue — Caméra », « OBS Red — Écran »…
 avec le logo OBS à sa couleur.

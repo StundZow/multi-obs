@@ -614,18 +614,26 @@ class MainWindow(QMainWindow):
     def closeEvent(self, e: QCloseEvent) -> None:
         running = [c.inst.name for c in self.manager.controllers.values() if c.running]
         if running and not getattr(self, "_quitting_for_update", False):
-            box = QMessageBox(QMessageBox.Icon.Question, APP_NAME,
-                              "Des instances OBS sont encore allumées :\n• " + "\n• ".join(running), parent=self)
-            keep = box.addButton("Les laisser tourner", QMessageBox.ButtonRole.AcceptRole)
-            close = box.addButton("Tout éteindre", QMessageBox.ButtonRole.DestructiveRole)
-            cancel = box.addButton("Annuler", QMessageBox.ButtonRole.RejectRole)
-            box.setDefaultButton(keep)
-            box.exec()
-            clicked = box.clickedButton()
-            if clicked is cancel:
-                e.ignore()
-                return
-            if clicked is close:
+            choice = self.manager.settings.get("on_close", "ask")
+            if choice not in ("keep", "stop"):
+                box = QMessageBox(QMessageBox.Icon.Question, APP_NAME,
+                                  "Des instances OBS sont encore allumées :\n• " + "\n• ".join(running), parent=self)
+                keep = box.addButton("Les laisser tourner", QMessageBox.ButtonRole.AcceptRole)
+                close = box.addButton("Tout éteindre", QMessageBox.ButtonRole.DestructiveRole)
+                cancel = box.addButton("Annuler", QMessageBox.ButtonRole.RejectRole)
+                remember = QCheckBox("Se souvenir de mon choix (modifiable dans les paramètres)")
+                box.setCheckBox(remember)
+                box.setDefaultButton(keep)
+                box.exec()
+                clicked = box.clickedButton()
+                if clicked is cancel or clicked is None:
+                    e.ignore()
+                    return
+                choice = "stop" if clicked is close else "keep"
+                if remember.isChecked():
+                    self.manager.settings["on_close"] = choice
+                    self.manager.save()
+            if choice == "stop":
                 self.close_all()
         self.hotkeys.clear()
         self.manager.shutdown()

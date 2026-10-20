@@ -8,7 +8,8 @@ Installation par utilisateur, sans droits administrateur :
   entrée « Applications installées » pour la désinstallation.
 
 Options en ligne de commande :
-  --silent  --dir <dossier>  --no-desktop  --no-shortcuts  --no-register  --no-launch  --no-online
+  --silent  --dir <dossier>  --no-start-menu  --no-desktop  --no-shortcuts  --no-register  --no-launch
+  --no-online
   --update --dir <dossier> [--wait-pid <pid>]   (utilisé par la mise à jour automatique de l'appli)
 """
 import ctypes
@@ -97,12 +98,12 @@ def put_exe(target_dir: Path) -> Path:
 
 
 def install(target_dir: Path, desktop: bool, shortcuts: bool, register: bool,
-            status=lambda text: None) -> Path:
+            status=lambda text: None, start_menu: bool = True) -> Path:
     status(f"Installation de Multi OBS {APP_VERSION}…")
     exe = put_exe(target_dir)
-    if shortcuts:
+    if shortcuts and (desktop or start_menu):
         status("Création des raccourcis…")
-        installinfo.create_shortcuts(exe, desktop)
+        installinfo.create_shortcuts(exe, desktop, start_menu)
     if register:
         installinfo.register(target_dir, APP_VERSION)
     status(f"Multi OBS {APP_VERSION} est installé.")
@@ -155,20 +156,23 @@ class SetupWindow:
         ttk.Entry(frm, textvariable=self.dir_var, width=52).grid(row=3, column=0, columnspan=2, sticky="we",
                                                                   pady=(4, 10), ipady=4)
         ttk.Button(frm, text="Changer…", command=self.browse).grid(row=3, column=2, padx=(8, 0), pady=(4, 10))
+        self.start_menu = tk.BooleanVar(value=True)
         self.desktop = tk.BooleanVar(value=True)
         self.launch = tk.BooleanVar(value=True)
-        ttk.Checkbutton(frm, text="Raccourci sur le bureau", variable=self.desktop).grid(
+        ttk.Checkbutton(frm, text="Ajouter au menu Démarrer", variable=self.start_menu).grid(
             row=4, column=0, columnspan=3, sticky="w")
+        ttk.Checkbutton(frm, text="Raccourci sur le bureau", variable=self.desktop).grid(
+            row=5, column=0, columnspan=3, sticky="w", pady=(2, 0))
         ttk.Checkbutton(frm, text="Lancer Multi OBS à la fin", variable=self.launch).grid(
-            row=5, column=0, columnspan=3, sticky="w", pady=(2, 14))
+            row=6, column=0, columnspan=3, sticky="w", pady=(2, 14))
         self.bar = ttk.Progressbar(frm, length=440, mode="determinate")
-        self.bar.grid(row=6, column=0, columnspan=3, sticky="we")
+        self.bar.grid(row=7, column=0, columnspan=3, sticky="we")
         self.status = ttk.Label(frm, text="Prêt à installer.", style="Muted.TLabel")
-        self.status.grid(row=7, column=0, columnspan=3, sticky="w", pady=(6, 14))
+        self.status.grid(row=8, column=0, columnspan=3, sticky="w", pady=(6, 14))
         self.cancel_btn = ttk.Button(frm, text="Fermer", command=root.destroy)
-        self.cancel_btn.grid(row=8, column=1, sticky="e", padx=(0, 8))
+        self.cancel_btn.grid(row=9, column=1, sticky="e", padx=(0, 8))
         self.go_btn = ttk.Button(frm, text="Installer", style="Accent.TButton", command=self.start)
-        self.go_btn.grid(row=8, column=2, sticky="e")
+        self.go_btn.grid(row=9, column=2, sticky="e")
         frm.columnconfigure(0, weight=1)
 
     def browse(self):
@@ -190,7 +194,7 @@ class SetupWindow:
         self.go_btn.configure(state="disabled")
         self.cancel_btn.configure(state="disabled")
         target = Path(self.dir_var.get())
-        desktop, launch = self.desktop.get(), self.launch.get()
+        desktop, launch, start_menu = self.desktop.get(), self.launch.get(), self.start_menu.get()
 
         def work():
             try:
@@ -200,12 +204,12 @@ class SetupWindow:
                     if rel:
                         self.set_status(f"Version {rel['tag_name'].lstrip('v')} disponible : téléchargement…")
                         args = ["--dir", str(target)] + ([] if desktop else ["--no-desktop"]) \
-                            + ([] if launch else ["--no-launch"])
+                            + ([] if start_menu else ["--no-start-menu"]) + ([] if launch else ["--no-launch"])
                         hand_over(rel, args, self.set_progress)
                         self.root.after(500, self.root.destroy)
                         return
                 self.set_progress(1, 1)
-                exe = install(target, desktop, True, True, self.set_status)
+                exe = install(target, desktop, True, True, self.set_status, start_menu)
             except Exception as e:  # message clair pour l'utilisateur
                 self.set_status(f"Échec : {e}")
                 self.root.after(0, lambda: (self.go_btn.configure(state="normal", text="Réessayer"),
@@ -239,7 +243,7 @@ def main():
                     hand_over(rel, [a for a in args if a != "--no-online"])
                     return 0
             exe = install(target, "--no-desktop" not in args, "--no-shortcuts" not in args,
-                          "--no-register" not in args, print)
+                          "--no-register" not in args, print, "--no-start-menu" not in args)
         except Exception as e:
             print(f"ERREUR : {e}")
             return 1
@@ -256,6 +260,8 @@ def main():
         window.dir_var.set(str(target))
     if "--no-desktop" in args:
         window.desktop.set(False)
+    if "--no-start-menu" in args:
+        window.start_menu.set(False)
     if "--no-launch" in args:
         window.launch.set(False)
     root.mainloop()
