@@ -136,6 +136,12 @@ python release.py X.Y.Z
 
 Le script reconstruit l'appli et l'installateur (`pip install pyinstaller pillow`), tague la version et publie la release GitHub — avec seulement l'installateur et les notes du changelog. Nécessite [GitHub CLI](https://cli.github.com/) authentifié.
 
+## Licence
+
+Multi OBS — Copyright © 2026 StundZow
+
+Logiciel libre sous licence [GNU GPL version 2 ou (à ton choix) toute version ultérieure](LICENSE) (GPL-2.0-or-later), comme OBS Studio : tu peux l'utiliser, l'étudier, le modifier et le redistribuer, à condition de garder la même licence et de fournir le code source. Il est fourni sans aucune garantie.
+
 ---
 
 Multi OBS est un projet indépendant, non affilié à l'OBS Project. Il pilote ton installation d'[OBS Studio](https://github.com/obsproject/obs-studio) sans la modifier ; les icônes de l'interface et le logo OBS proviennent d'OBS Studio (GPL-2.0).
