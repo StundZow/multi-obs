@@ -28,11 +28,12 @@ Parce que deux OBS lancés normalement partagent le même dossier de configurati
 
 - 🧩 **Instances indépendantes** — scènes, profils, plugins et réglages séparés ; aucune ne peut faire planter les autres
 - 🔗 **Pilotage global** — tout allumer, tout enregistrer, tout mettre en pause d'un clic ; une instance déliée (**Link**) reste à part, pratique pour le live
+- ⏸️ **Pause à l'image près** — « Tout en pause » enlève exactement les mêmes images dans chaque enregistrement : les pistes restent calées au montage, pause après pause
 - 👀 **Aperçu en direct sans compression**, vumètres audio, images perdues, CPU, et alertes (pas de son, disque presque plein, OBS qui attend une réponse)
 - 🗂️ **Instances réduites** — le bouton **œil barré** range une instance dont tu ne te sers pas (l'OBS du live…) dans une barre en bas, avec son état ; **Remettre** la ramène parmi les autres
-- 🎥 **Une caméra virtuelle par instance** — « OBS Virtual Camera 1, 2, 3… » pour Discord, Zoom ou une autre instance, sans droits administrateur
+- 🎥 **Une caméra virtuelle par instance**, au nom de sa couleur — « VCam Rouge », « VCam Bleu »… pour Discord, Zoom ou une autre instance, sans droits administrateur
 - 🏷️ **Nommage automatique** — `Nom-type-Vidéo-date_heure`, avec tes propres types (Cam, Écran et Live par défaut)
-- 🎞️ **MKV → MP4 automatique** à la fin du rec, et option pour mettre le MKV à la corbeille une fois le MP4 vérifié
+- 🎞️ **MKV → MP4 automatique** à la fin du rec, avec l'avancement de chaque conversion sur sa carte, et option pour mettre le MKV à la corbeille une fois le MP4 vérifié
 - 💾 **Espace disque** et fichier en cours affichés sur chaque instance, dossier d'enregistrement en un clic
 - 🎨 **Une couleur par instance** — thème OBS teinté, logo coloré dans la barre des tâches, image de caméra virtuelle assortie
 - 📦 **Préconfigs** — enregistre et rouvre un ensemble complet d'instances
@@ -59,7 +60,7 @@ Parce que deux OBS lancés normalement partagent le même dossier de configurati
 
 ## Caméras virtuelles
 
-Chaque instance a sa propre caméra virtuelle, à côté de « OBS Virtual Camera » de ton OBS habituel. Pour partager ta webcam entre plusieurs instances, l'instance qui la capture allume sa **VCam**, et les autres ajoutent une source « Périphérique de capture vidéo » sur « OBS Virtual Camera N ». Une instance ne voit pas sa propre caméra virtuelle, ce qui évite les boucles. Si une caméra disparaît de Windows, Multi OBS la remet tout seul.
+Chaque instance a sa propre caméra virtuelle, au nom de sa couleur (« VCam Rouge », « VCam Bleu »…), à côté de « OBS Virtual Camera » de ton OBS habituel. Pour partager ta webcam entre plusieurs instances, l'instance qui la capture allume sa **VCam**, et les autres ajoutent une source « Périphérique de capture vidéo » sur cette caméra. Une instance ne voit pas sa propre caméra virtuelle, ce qui évite les boucles. Si une caméra disparaît de Windows, Multi OBS la remet tout seul.
 
 Quand une caméra virtuelle est éteinte, son image d'attente prend la couleur de son instance :
 
@@ -97,9 +98,10 @@ Mesuré avec trois instances et les réglages par défaut : 2 à 4 % du processe
 
 - **Une installation OBS portable par instance.** Multi OBS copie ton OBS une fois (`data/runtime`), et chaque instance y pointe par liens physiques : trois instances ne prennent presque pas plus de place qu'une. Chacune a son propre dossier `config/`.
 - **Pilotage par obs-websocket**, intégré à OBS : une connexion pour les commandes et l'état, une seconde en binaire (MessagePack) réservée à l'aperçu.
+- **Pause à l'image près** : chaque OBS a sa propre horloge d'images et coupe une pause sur l'une d'elles ; mis en pause « en même temps », deux OBS peuvent enlever une image de plus ou de moins, et l'écart s'accumule (jusqu'à 6 images après 20 pauses dans nos mesures). Multi OBS exécute la pause et la reprise dans la boucle d'images de chaque OBS (lots obs-websocket « SerialFrame ») et programme chaque reprise exactement N images après la pause : **0 image d'écart sur 100 pauses mesurées** à 60 i/s, aperçus allumés ou non (mesure image par image sur les fichiers enregistrés).
 - **Caméras virtuelles** : le module de caméra virtuelle d'OBS est dupliqué et modifié pour chaque instance (identifiant et mémoire partagée propres), puis enregistré pour l'utilisateur courant.
 - **Installateur unique** : `Multi-OBS-Setup.exe` contient l'appli. Au lancement, il vérifie s'il existe une version plus récente sur GitHub. Les mises à jour de l'appli téléchargent ce même installateur, qui remplace Multi OBS et le relance — les instances OBS continuent de tourner pendant ce temps.
-- **Testé** par une batterie de 59 vérifications : enregistrements simultanés avec pauses (durées, images, son), boutons, raccourcis, aperçus, économies, plantages, redémarrage.
+- **Testé** par une batterie de près de 60 vérifications : enregistrements simultanés avec pauses (durées, images, son), boutons, raccourcis, aperçus, économies, plantages, redémarrage ; et par un banc qui relit chaque image des fichiers pour vérifier que les pauses enlèvent les mêmes images partout.
 
 Les données sont dans le dossier d'installation :
 
@@ -115,7 +117,7 @@ data/
 
 Pour mettre à jour OBS : mets à jour ton OBS habituel, puis ⚙ → Général → « Mettre à jour les instances ».
 
-> Tant que le dépôt est **privé**, la recherche de mises à jour passe par [GitHub CLI](https://cli.github.com/) connecté (`gh auth login`) ou la variable `MULTIOBS_GITHUB_TOKEN`.
+Le journal `data/multiobs.log` note les événements rares utiles en cas de souci (caméras virtuelles réinstallées, pause qu'OBS a tardé à appliquer…).
 
 ## Lancer depuis les sources
 

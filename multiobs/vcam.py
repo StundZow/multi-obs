@@ -1,4 +1,4 @@
-"""Enregistrement des caméras virtuelles « OBS Virtual Camera N » dans Windows.
+"""Enregistrement des caméras virtuelles « VCam Rouge », « VCam Bleu »… dans Windows.
 
 On reproduit exactement l'enregistrement fait par l'installeur d'OBS, mais avec un
 CLSID et un nom par caméra, en pointant vers les modules patchés de data/vcam/N.
@@ -8,9 +8,10 @@ import subprocess
 import tempfile
 import threading
 import winreg
+from collections import Counter
 from pathlib import Path
 
-from . import obsfiles, paths
+from . import obsfiles, paths, theme
 
 _lock = threading.Lock()   # allumage et réparation automatique peuvent tourner en même temps
 
@@ -30,6 +31,35 @@ def _guid_str(n: int) -> str:
     return "{" + str(obsfiles.vcam_guid(n)).upper() + "}"
 
 
+def display_names(instances) -> dict[int, str]:
+    """Nom de chaque caméra dans Windows (Discord…) : la couleur de son instance, « VCam Rouge ».
+    Deux instances de la même couleur : on ajoute le numéro de la caméra pour les distinguer."""
+    counts = Counter(i.color for i in instances)
+    names = {}
+    for i in instances:
+        label = theme.ACCENTS.get(i.color, theme.ACCENTS["blue"])[0]
+        names[i.vcam] = f"VCam {label}" + (f" {i.vcam}" if counts[i.color] > 1 else "")
+    return names
+
+
+def registered_name(n: int) -> str | None:
+    """Nom sous lequel la caméra n est enregistrée pour l'utilisateur (None si absente)."""
+    sub = rf"Software\Classes\CLSID\{CATEGORY}\Instance\{_guid_str(n)}"
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, sub, 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY) as k:
+            return winreg.QueryValueEx(k, "FriendlyName")[0]
+    except OSError:
+        return None
+
+
+def up_to_date(n: int, name: str) -> bool:
+    """Enregistrée vers nos modules et sous le bon nom (nom vérifié pour l'enregistrement
+    utilisateur seulement : celui de la machine demanderait les droits admin)."""
+    if not is_registered(n):
+        return False
+    return registered_scope(n) != SCOPE_USER or registered_name(n) == name
+
+
 def _roots(scope: str) -> tuple[str, str]:
     base = r"HKEY_CURRENT_USER\Software\Classes" if scope == SCOPE_USER \
         else r"HKEY_LOCAL_MACHINE\SOFTWARE\Classes"
@@ -40,13 +70,13 @@ def _reg_str(s: str) -> str:
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def _reg_file(indices: list[int], scope: str, remove: bool) -> str:
+def _reg_file(indices: list[int], scope: str, remove: bool, names: dict[int, str] | None = None) -> str:
     lines = ["Windows Registry Editor Version 5.00", ""]
     hexdata = ",".join(f"{b:02x}" for b in FILTER_DATA)
     root64, root32 = _roots(scope)
     for n in indices:
         guid = _guid_str(n)
-        name = obsfiles.vcam_name(n)
+        name = (names or {}).get(n) or obsfiles.vcam_name(n)
         mod_dir = paths.VCAM / str(n)
         for root, dll in ((root64, "obs-virtualcam-module64.dll"), (root32, "obs-virtualcam-module32.dll")):
             clsid_key = rf"{root}\CLSID\{guid}"
@@ -89,13 +119,15 @@ def _run_reg_import(content: str, elevated: bool) -> None:
         pass
 
 
-def install(indices: list[int], scope: str = SCOPE_USER, colors: dict[int, str] | None = None) -> list[int]:
-    """Prépare les modules et enregistre les caméras. Renvoie celles qui ont échoué."""
+def install(indices: list[int], scope: str = SCOPE_USER, colors: dict[int, str] | None = None,
+            names: dict[int, str] | None = None) -> list[int]:
+    """Prépare les modules et enregistre (ou renomme) les caméras. Renvoie celles qui ont échoué."""
     with _lock:
         for n in indices:
             obsfiles.build_vcam_modules(n, (colors or {}).get(n))
-        _run_reg_import(_reg_file(indices, scope, remove=False), elevated=(scope == SCOPE_MACHINE))
-        return [n for n in indices if not is_registered(n)]
+        _run_reg_import(_reg_file(indices, scope, remove=False, names=names), elevated=(scope == SCOPE_MACHINE))
+        return [n for n in indices if not is_registered(n)
+                or (scope == SCOPE_USER and names and n in names and registered_name(n) != names[n])]
 
 
 def uninstall(indices: list[int]) -> None:

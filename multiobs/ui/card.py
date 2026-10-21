@@ -10,7 +10,7 @@ from .. import naming, theme
 from ..controller import InstanceController
 from ..instance_config import record_directory
 from ..theme import YAMI
-from .widgets import DiskBar, MeterWidget, PreviewWidget, color_dot, human_size, icon
+from .widgets import DiskBar, MeterWidget, PreviewWidget, RemuxBar, color_dot, human_size, icon
 
 
 def _restyle(w: QWidget) -> None:
@@ -43,10 +43,11 @@ class InstanceCard(QFrame):
     previewHiddenChanged = Signal(str, bool)
     minimizeRequested = Signal(str)
 
-    def __init__(self, ctrl: InstanceController, parent=None):
+    def __init__(self, ctrl: InstanceController, parent=None, vcam_name: str = ""):
         super().__init__(parent)
         self.ctrl = ctrl
         self.filename_preview = None   # fourni par la fenêtre principale
+        self.vcam_name = vcam_name     # « VCam Rouge » : nom de la caméra virtuelle dans Windows
         self.setObjectName("instanceCard")
         self.setMinimumWidth(420)
 
@@ -117,6 +118,9 @@ class InstanceCard(QFrame):
 
         self.disk = DiskBar()
         body.addWidget(self.disk)
+        self.remux_bar = RemuxBar()    # à la place du stockage pendant la conversion MP4
+        self.remux_bar.hide()
+        body.addWidget(self.remux_bar)
 
         # Commandes
         row = QHBoxLayout()
@@ -238,10 +242,12 @@ class InstanceCard(QFrame):
             f"border: 1px solid {theme.mix(YAMI['grey5'], col, 0.25)}; }}")
         self.preview.background = QColor(bg)
         self.preview.update()
+        self.remux_bar.track = QColor(theme.mix(YAMI["grey7"], theme.accent(inst.color, 3), 0.55))
         self.dot.setPixmap(color_dot(col, 12))
         self.name.setText(inst.name)
-        self.vcam_btn.setText(f"VCam {inst.vcam}")
-        self.vcam_btn.setToolTip(f"Allumer / éteindre la caméra virtuelle « OBS Virtual Camera {inst.vcam} »\n"
+        vcam_name = self.vcam_name or f"VCam {inst.vcam}"
+        self.vcam_btn.setText(vcam_name)
+        self.vcam_btn.setToolTip(f"Allumer / éteindre la caméra virtuelle « {vcam_name} »\n"
                                  "(pour Discord, ou comme source dans une autre instance)")
         self.include.blockSignals(True)
         self.include.setChecked(inst.include_global)
@@ -358,13 +364,19 @@ class InstanceCard(QFrame):
         else:
             self.stats.setText(f"Port {c.inst.port}  ·  dossier {c.inst.id}")
 
-        folder = getattr(c, "disk_path", "")
-        display = folder
-        if c.recording and c.rec_path:
-            display = c.rec_path
-        elif folder and self.filename_preview:
-            display = folder.rstrip("/\\") + "\\" + self.filename_preview()
-        self.disk.set_state(c.disk_free, c.disk_total, folder, c.bytes_per_second(), display)
+        remux = c.remux_progress
+        self.remux_bar.setVisible(remux is not None)
+        self.disk.setVisible(remux is None)
+        if remux is not None:
+            self.remux_bar.set_state(remux, str(c.remux["mp4"]))
+        else:
+            folder = getattr(c, "disk_path", "")
+            display = folder
+            if c.recording and c.rec_path:
+                display = c.rec_path
+            elif folder and self.filename_preview:
+                display = folder.rstrip("/\\") + "\\" + self.filename_preview()
+            self.disk.set_state(c.disk_free, c.disk_total, folder, c.bytes_per_second(), display)
 
         warns = c.warnings()
         self.warning.setVisible(bool(warns))
@@ -383,7 +395,7 @@ class MiniChip(QFrame):
     """Instance réduite : pastille de la barre du bas (état, alertes) avec « Remettre »."""
     restoreRequested = Signal(str)
 
-    def __init__(self, ctrl: InstanceController, parent=None):
+    def __init__(self, ctrl: InstanceController, parent=None, vcam_name: str = ""):
         super().__init__(parent)
         self.ctrl = ctrl
         self.setObjectName("miniChip")
@@ -399,7 +411,7 @@ class MiniChip(QFrame):
         name = QLabel(ctrl.inst.name, objectName="miniName")
         self.state = QLabel(objectName="chip")
         self.vcam = QLabel("VCam", objectName="miniTag")
-        self.vcam.setToolTip(f"Caméra virtuelle « OBS Virtual Camera {ctrl.inst.vcam} » allumée")
+        self.vcam.setToolTip(f"Caméra virtuelle « {vcam_name or 'VCam ' + str(ctrl.inst.vcam)} » allumée")
         self.alert = QLabel("⚠", objectName="miniAlert")
         restore = QToolButton(objectName="miniRestore")
         restore.setIcon(icon("up.svg"))
@@ -422,6 +434,8 @@ class MiniChip(QFrame):
         text, state = _status_chip(c)
         if c.recording and c.rec_time:   # pas d'aperçu ici : la durée est dans la pastille
             text += "  " + c.rec_time
+        elif c.remux_progress is not None:
+            text, state = f"Conversion MP4  {int(c.remux_progress * 100)} %", "busy"
         self.state.setText(text)
         if self.state.property("state") != state:
             self.state.setProperty("state", state)

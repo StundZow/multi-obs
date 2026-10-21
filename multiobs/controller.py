@@ -10,7 +10,7 @@ import psutil
 from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtGui import QImage
 
-from . import taskbar, winapi
+from . import obsfiles, taskbar, winapi
 from .instance_config import InstanceDef, record_directory
 from .obsws import ObsWs
 from .preview import PreviewChannel
@@ -59,6 +59,9 @@ class InstanceController(QObject):
         self.settings: dict = {}
         self._remux_watch: list[dict] = []
         self._remux_timer = QTimer(self, interval=3000, timeout=self._check_remux)
+        # Conversion MKV → MP4 en cours (barre sur la carte) : {"mp4", "total", "progress"…}
+        self.remux: dict | None = None
+        self._remux_track = QTimer(self, interval=300, timeout=self._track_remux)
         self.actionFailed.connect(self._remember_failure)
         self._reset_state()
         self._refresh_disk()
@@ -183,7 +186,10 @@ class InstanceController(QObject):
         if self.running:
             return
         exe = self.inst.exe
-        p = subprocess.Popen([str(exe), *LAUNCH_ARGS], cwd=str(exe.parent), close_fds=True,
+        # OBS a son propre Qt : on ne lui passe pas les réglages Qt de Multi OBS (QT_QPA_PLATFORM…),
+        # qui peuvent l'empêcher de démarrer.
+        env = {k: v for k, v in os.environ.items() if not k.upper().startswith(("QT_", "QML"))}
+        p = subprocess.Popen([str(exe), *LAUNCH_ARGS], cwd=str(exe.parent), close_fds=True, env=env,
                              creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
         self.proc = psutil.Process(p.pid)
         self._reset_state()
@@ -392,7 +398,7 @@ class InstanceController(QObject):
             self._decorate_window()
         if self.proc and self._disk_tick % 2 == 0:
             try:
-                self.obs_dialogs = winapi.pending_dialogs(self.proc.pid)
+                self.obs_dialogs = winapi.pending_dialogs(self.proc.pid, obsfiles.remux_titles())
             except Exception:
                 self.obs_dialogs = []
         elif not self.proc:
@@ -512,6 +518,7 @@ class InstanceController(QObject):
             if state.endswith("STOPPED"):
                 self.rec_path = ""
                 self._watch_remux(d.get("outputPath") or "")
+                self._start_remux_tracking(d.get("outputPath") or "")
                 if self._close_after_stop:
                     self._close_after_stop = False
                     self._close_when_converted(d.get("outputPath") or "")
@@ -549,6 +556,57 @@ class InstanceController(QObject):
         self._remux_watch.append({"mkv": mkv, "mp4": mkv.with_suffix(".mp4"), "since": time.monotonic(),
                                   "size": -1, "stable": 0})
         self._remux_timer.start()
+
+    @property
+    def remux_progress(self) -> float | None:
+        """Avancement de la conversion MP4 (0 à 1), None s'il n'y en a pas."""
+        return self.remux["progress"] if self.remux else None
+
+    def _start_remux_tracking(self, path: str) -> None:
+        """OBS convertit le MKV à l'arrêt (sa petite fenêtre reste derrière) : on suit l'avancement
+        pour l'afficher sur la carte, d'après la taille du MP4 qui se remplit."""
+        if not (path.lower().endswith(".mkv") and self.settings.get("auto_remux", True)):
+            return
+        mkv = Path(path)
+        try:
+            total = mkv.stat().st_size
+        except OSError:
+            return
+        now = time.monotonic()
+        self.remux = {"mp4": mkv.with_suffix(".mp4"), "total": total, "progress": 0.0, "size": -1,
+                      "changed": now, "since": now, "window_seen": False}
+        self._remux_track.start()
+        self.changed.emit()
+
+    def _track_remux(self) -> None:
+        r = self.remux
+        if r is None:
+            self._remux_track.stop()
+            return
+        now = time.monotonic()
+        try:
+            size = r["mp4"].stat().st_size
+        except OSError:
+            size = 0
+        try:
+            window = bool(self.proc) and winapi.has_window(self.proc.pid, obsfiles.remux_titles())
+        except Exception:
+            window = False
+        r["window_seen"] |= window
+        if size != r["size"]:
+            r["size"], r["changed"] = size, now
+        # Fenêtre de conversion d'OBS ouverte, ou fichier qui grossit encore (fenêtre pas trouvée) ;
+        # au début, on laisse quelques secondes à OBS pour lancer la conversion.
+        converting = window or now - r["changed"] < 1.5 or (not r["window_seen"] and now - r["since"] < 4)
+        if not converting or now - r["since"] > 3600:
+            self.remux = None
+            self._remux_track.stop()
+            self.changed.emit()
+            return
+        progress = min(0.99, size / r["total"]) if r["total"] else 0.0
+        if progress - r["progress"] >= 0.005:
+            r["progress"] = progress
+            self.changed.emit()
 
     def _check_remux(self) -> None:
         keep = []

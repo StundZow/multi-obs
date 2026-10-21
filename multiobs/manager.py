@@ -267,16 +267,22 @@ class Manager(QObject):
             ensure_config(inst, (import_from or {}).get(inst.id), self.filename_format(inst),
                           bool(self.settings.get("auto_remux", True)))
         colors = {i.vcam: i.color for i in insts}
-        missing = [i.vcam for i in insts if not vcam.is_registered(i.vcam)]
+        names = self.vcam_names()
+        stale = sorted({i.vcam for i in insts if not vcam.up_to_date(i.vcam, names.get(i.vcam, ""))})
+        missing = [n for n in stale if not vcam.is_registered(n)]
         for inst in insts:
             obsfiles.set_vcam_placeholder(inst.vcam, inst.color)
-        if missing and self.settings.get("vcam_scope") == vcam.SCOPE_USER:
+        if stale and self.settings.get("vcam_scope") == vcam.SCOPE_USER:
             progress(0, 0, "Installation des caméras virtuelles…")
-            failed = vcam.install(sorted(set(missing)), vcam.SCOPE_USER, colors)
-            applog.log(f"Allumage : caméras virtuelles {sorted(set(missing))} installées"
+            failed = vcam.install(stale, vcam.SCOPE_USER, colors, names)
+            applog.log(f"Allumage : caméras virtuelles {[names.get(n, n) for n in stale]} installées"
                        + (f" (échec pour {failed})" if failed else ""))
             return failed
-        return sorted(set(missing))
+        return missing
+
+    def vcam_names(self) -> dict[int, str]:
+        """{numéro de caméra: nom dans Windows} — « VCam Rouge », « VCam Bleu »…"""
+        return vcam.display_names(self.instances)
 
     def update_obs(self, progress) -> None:
         """Recopie OBS (après une mise à jour) et reconstruit toutes les instances."""

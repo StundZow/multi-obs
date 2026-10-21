@@ -13,7 +13,7 @@ user32.GetWindow.argtypes = [wintypes.HWND, wintypes.UINT]
 user32.GetWindow.restype = wintypes.HWND
 user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
 user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
-user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+user32.ShowWindowAsync.argtypes = [wintypes.HWND, ctypes.c_int]
 user32.SetForegroundWindow.argtypes = [wintypes.HWND]
 user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
 user32.keybd_event.argtypes = [wintypes.BYTE, wintypes.BYTE, wintypes.DWORD, ctypes.c_size_t]
@@ -51,9 +51,10 @@ def main_window(pid: int, visible_only: bool = True):
     return found[0] if found else None
 
 
-def pending_dialogs(pid: int) -> list[str]:
+def pending_dialogs(pid: int, ignore: frozenset = frozenset()) -> list[str]:
     """Fenêtres de dialogue d'OBS ouvertes alors que sa fenêtre principale est réduite :
-    OBS attend une réponse (erreur, confirmation…) que personne ne voit."""
+    OBS attend une réponse (erreur, confirmation…) que personne ne voit. `ignore` : titres de
+    fenêtres qui n'attendent rien (conversion en cours…)."""
     main, owned = None, []
 
     def cb(hwnd, _lp):
@@ -63,7 +64,7 @@ def pending_dialogs(pid: int) -> list[str]:
         if p.value == pid and user32.IsWindowVisible(hwnd):
             title = _title(hwnd)
             if user32.GetWindow(hwnd, GW_OWNER):
-                if title:
+                if title and title not in ignore:
                     owned.append(title)
             elif title.startswith("OBS"):
                 main = hwnd
@@ -75,9 +76,27 @@ def pending_dialogs(pid: int) -> list[str]:
     return owned
 
 
+def has_window(pid: int, titles: frozenset) -> bool:
+    """Le processus a-t-il une fenêtre visible portant l'un de ces titres ?"""
+    found = False
+
+    def cb(hwnd, _lp):
+        nonlocal found
+        p = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(p))
+        if p.value == pid and user32.IsWindowVisible(hwnd) and _title(hwnd) in titles:
+            found = True
+            return False
+        return True
+
+    user32.EnumWindows(_EnumProc(cb), 0)
+    return found
+
+
+# Fenêtres d'un autre processus : versions « Async », sinon un OBS figé figerait Multi OBS.
 def bring_to_front(hwnd) -> None:
     if user32.IsIconic(hwnd):
-        user32.ShowWindow(hwnd, SW_RESTORE)
+        user32.ShowWindowAsync(hwnd, SW_RESTORE)
     # Windows refuse SetForegroundWindow sans entrée clavier récente : on simule Alt.
     user32.keybd_event(VK_MENU, 0, 0, 0)
     user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
@@ -85,7 +104,7 @@ def bring_to_front(hwnd) -> None:
 
 
 def minimize(hwnd) -> None:
-    user32.ShowWindow(hwnd, SW_SHOWMINNOACTIVE)
+    user32.ShowWindowAsync(hwnd, SW_SHOWMINNOACTIVE)
 
 
 def request_close(hwnd) -> None:

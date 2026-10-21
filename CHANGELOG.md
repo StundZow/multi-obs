@@ -3,6 +3,21 @@
 Chaque version publiée avec `python release.py X.Y.Z` reprend la section correspondante :
 c'est ce texte que Multi OBS affiche quand il propose la mise à jour.
 
+## 1.0.7
+
+- **Pause globale à l'image près** : « Tout en pause » / « Tout reprendre » (et le raccourci) enlèvent
+  exactement les mêmes images dans chaque enregistrement. Avant, chaque OBS coupait sur sa propre horloge
+  et les pistes pouvaient se décaler d'une image à chaque pause (jusqu'à 6 images après 20 pauses dans nos
+  mesures). Maintenant : 0 image d'écart sur 100 pauses mesurées à 60 i/s (dont 40 aperçus allumés). Si OBS
+  tarde à appliquer une pause, Multi OBS compense, ou te prévient en bas de la fenêtre.
+- **Caméras virtuelles au nom de leur couleur** : « VCam Rouge », « VCam Bleu »… dans Discord, Zoom ou OBS
+  (avec le numéro si deux instances ont la même couleur). Les caméras existantes sont renommées toutes
+  seules ; redémarre Discord pour voir les nouveaux noms.
+- **Conversion MP4 sur la carte** : pendant qu'OBS convertit l'enregistrement, une barre au style d'OBS
+  remplace la barre de stockage, avec l'avancement (aussi sur la pastille d'une instance réduite). La petite
+  fenêtre de conversion d'OBS reste derrière, et ne déclenche plus l'alerte « OBS attend une réponse ».
+- Un OBS figé ne peut plus figer Multi OBS quand il réduit ou affiche sa fenêtre.
+
 ## 1.0.6
 
 - Aperçu : quand la scène n'a pas le même format que la carte, les bandes autour de l'image prennent

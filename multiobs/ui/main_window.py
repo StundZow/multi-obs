@@ -1,4 +1,6 @@
 """Fenêtre principale de Multi OBS."""
+import time
+
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QCloseEvent, QGuiApplication
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout,
@@ -6,6 +8,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFrame, QGrid
                                QScrollArea, QSizePolicy, QToolButton, QVBoxLayout, QWidget)
 
 from .. import APP_NAME, APP_VERSION, applog, obsfiles, paths, vcam
+from ..framesync import FrameSync
 from ..hotkeys import GlobalHotkeys
 from ..manager import AUTOSAVE_SLUG, Manager
 from ..preview import STATE_ACTIVE, STATE_AWAY, STATE_BACKGROUND
@@ -83,6 +86,11 @@ class MainWindow(QMainWindow):
         self.hotkeys = GlobalHotkeys(int(self.winId()))
         QApplication.instance().installNativeEventFilter(self.hotkeys)
         self.apply_hotkeys()
+
+        # « Tout en pause / reprendre » synchronisés à l'image près (thread et connexions dédiés).
+        self.framesync = FrameSync(self)
+        self.framesync.finished.connect(self._on_framesync)
+        self._sync_busy, self._sync_started = False, 0.0
 
         # Contexte des aperçus : premier plan, arrière-plan, absent ; cartes visibles ou non.
         self.system = SystemEvents(int(self.winId()))
@@ -237,9 +245,10 @@ class MainWindow(QMainWindow):
                 card.setParent(None)
                 card.deleteLater()
                 del self.cards[inst_id]
+        names = self.manager.vcam_names()
         for inst in self.manager.instances:
             if inst.id not in self.cards:
-                card = InstanceCard(self.manager.controller(inst.id))
+                card = InstanceCard(self.manager.controller(inst.id), vcam_name=names.get(inst.vcam, ""))
                 card.ctrl.actionFailed.connect(lambda m: self.statusBar().showMessage("⚠ " + m, 10000))
                 card.launchRequested.connect(lambda i: self.launch([i]))
                 card.editRequested.connect(self.edit_instance)
@@ -253,6 +262,7 @@ class MainWindow(QMainWindow):
                     next(x for x in self.manager.instances if x.id == i)))
                 self.cards[inst.id] = card
             else:
+                self.cards[inst.id].vcam_name = names.get(inst.vcam, "")
                 self.cards[inst.id].apply_definition()
         self._columns = 0
         self._relayout()
@@ -299,9 +309,10 @@ class MainWindow(QMainWindow):
             chip.setParent(None)
             chip.deleteLater()
         self.mini_chips = {}
+        names = self.manager.vcam_names()
         for inst in self.manager.instances:
             if inst.card_minimized and inst.id in self.manager.controllers:
-                chip = MiniChip(self.manager.controller(inst.id))
+                chip = MiniChip(self.manager.controller(inst.id), vcam_name=names.get(inst.vcam, ""))
                 chip.restoreRequested.connect(lambda i: self._set_card_minimized(i, False))
                 self.mini_flow.addWidget(chip)
                 self.mini_chips[inst.id] = chip
@@ -454,12 +465,28 @@ class MainWindow(QMainWindow):
                 "⚠ Pause impossible pour : " + ", ".join(blocked)
                 + " (qualité « Identique au stream ») — clic sur Pause sur la carte pour corriger.", 12000)
         recs = [c for c in recs if not (c.pause_blocked and not c.paused)]
-        if recs and all(c.paused for c in recs):
-            for c in recs:
-                c.resume_record()
+        if not recs or (self._sync_busy and time.monotonic() - self._sync_started < 10):
+            return
+        # À l'image près : chaque instance enlève exactement la même durée (voir framesync.py).
+        self._sync_busy, self._sync_started = True, time.monotonic()
+        if all(c.paused for c in recs):
+            self.framesync.resume([self._sync_target(c) for c in recs])
         else:
-            for c in recs:
-                c.pause_record()
+            self.framesync.pause([self._sync_target(c) for c in recs if not c.paused])
+
+    @staticmethod
+    def _sync_target(c) -> tuple[str, int, str, str]:
+        return c.inst.id, c.inst.port, c.inst.password, c.inst.name
+
+    def _on_framesync(self, op: str, ids: list, warnings: list) -> None:
+        self._sync_busy = False
+        for inst_id in ids:
+            c = self.manager.controllers.get(inst_id)
+            if c and op == "pause":
+                QTimer.singleShot(800, c._check_paused)   # OBS répond « OK » même s'il refuse la pause
+        if warnings:
+            self.statusBar().showMessage("⚠ " + " · ".join(warnings), 15000)
+            applog.log(f"Synchro de la {op} : " + " · ".join(warnings))
 
     def refresh_global(self) -> None:
         targets = self._targets()
@@ -515,6 +542,7 @@ class MainWindow(QMainWindow):
         dlg = InstanceDialog(self.manager, inst, self)
         if dlg.exec():
             self.manager.update_instance(dlg.result_definition())
+            self.repair_vcams()   # couleur changée : la caméra virtuelle change de nom tout de suite
 
     def delete_instance(self, inst_id: str) -> None:
         inst = next(i for i in self.manager.instances if i.id == inst_id)
@@ -677,10 +705,12 @@ class MainWindow(QMainWindow):
         if self.manager.settings.get("vcam_scope") != vcam.SCOPE_USER or obsfiles.runtime_signature() is None \
                 or getattr(self, "_vcam_task", None) is not None:
             return
-        colors = {i.vcam: i.color for i in self.manager.instances if not vcam.is_registered(i.vcam)}
+        names = self.manager.vcam_names()
+        colors = {i.vcam: i.color for i in self.manager.instances if not vcam.up_to_date(i.vcam, names[i.vcam])}
         if not colors:
             return
-        applog.log(f"Caméras virtuelles absentes de Windows : {sorted(colors)} — réinstallation")
+        applog.log(f"Caméras virtuelles absentes de Windows ou à renommer : {[names[n] for n in sorted(colors)]}"
+                   " — réinstallation")
 
         def done(failed):
             self._vcam_task = None
@@ -692,7 +722,7 @@ class MainWindow(QMainWindow):
                        if failed else "  réinstallées")
             self.refresh_status()
 
-        task = Task(lambda _p: vcam.install(sorted(colors), vcam.SCOPE_USER, colors), self)
+        task = Task(lambda _p: vcam.install(sorted(colors), vcam.SCOPE_USER, colors, names), self)
         task.succeeded.connect(done)
         task.failed.connect(lambda _m: done(sorted(colors)))
         task.finished.connect(task.deleteLater)
@@ -731,5 +761,6 @@ class MainWindow(QMainWindow):
             if choice == "stop":
                 self.close_all()
         self.hotkeys.clear()
+        self.framesync.shutdown()
         self.manager.shutdown()
         e.accept()

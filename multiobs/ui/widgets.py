@@ -368,6 +368,55 @@ class DiskBar(QWidget):
         p.end()
 
 
+class RemuxBar(QWidget):
+    """Conversion MKV → MP4 en cours : barre au style de celle d'OBS (Yami), fond à la couleur de
+    l'instance. Remplace la barre de stockage le temps de la conversion."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.progress = 0.0
+        self.target = ""
+        self.track = QColor(YAMI["grey4"])
+        self.setFixedHeight(38)
+        self.setToolTip("OBS convertit l'enregistrement en MP4 (sa fenêtre de conversion est derrière)")
+
+    def set_state(self, progress: float, target: str) -> None:
+        if (int(progress * 100), target) != (int(self.progress * 100), self.target):
+            self.progress, self.target = progress, target
+            self.update()
+
+    def paintEvent(self, _e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(Qt.PenStyle.NoPen)
+        w = self.width()
+        bar = QRectF(0, 1, w, 19)
+        p.setBrush(self.track)
+        p.drawRoundedRect(bar, 4, 4)
+        # Partie faite comme dans OBS : bleu, liseré clair en haut, plus foncé en bas.
+        done = QRectF(bar.left(), bar.top(), max(6.0, bar.width() * self.progress), bar.height())
+        p.setBrush(QColor(YAMI["blue3"]))
+        p.drawRoundedRect(done, 3, 3)
+        p.setBrush(QColor(YAMI["blue2"]))
+        p.drawRect(QRectF(done.left() + 2, done.top(), max(0.0, done.width() - 4), 1))
+        p.setBrush(QColor(YAMI["blue4"]))
+        p.drawRect(QRectF(done.left() + 2, done.bottom() - 2, max(0.0, done.width() - 4), 2))
+        f = QFont(self.font())
+        f.setPointSizeF(8)
+        f.setBold(True)
+        p.setFont(f)
+        p.setPen(QColor(YAMI["white1"]))
+        p.drawText(bar, Qt.AlignmentFlag.AlignCenter, f"Conversion en MP4  ·  {int(self.progress * 100)} %")
+        if self.target:
+            f.setBold(False)
+            p.setFont(f)
+            p.setPen(QColor(YAMI["grey1"]))
+            p.drawText(QRectF(0, 24, w, 14), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                       p.fontMetrics().elidedText("Vers " + self.target.replace("/", "\\"),
+                                                  Qt.TextElideMode.ElideMiddle, w))
+        p.end()
+
+
 class FlowLayout(QLayout):
     """Éléments alignés à la suite, qui passent à la ligne quand la place manque."""
 

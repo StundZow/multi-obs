@@ -57,6 +57,8 @@ class ColorPicker(QHBoxLayout):
             b.setIcon(SwatchButtonPainter.icon(theme.accent(k, 2), k == key))
             b.setIconSize(QSize(26, 26))
             b.setChecked(k == key)
+        if getattr(self, "on_change", None):
+            self.on_change(key)
 
 
 class InstanceDialog(QDialog):
@@ -79,13 +81,14 @@ class InstanceDialog(QDialog):
         self.colors = ColorPicker(inst.color if inst else manager.next_color())
         form.addRow("Couleur", self.colors)
 
-        self.vcam = QComboBox()
+        # Caméra virtuelle : nommée d'après la couleur (« VCam Rouge »), numéro attribué tout seul.
         free = manager.free_vcams(inst.id if inst else None)
-        for n in free:
-            self.vcam.addItem(obsfiles.vcam_name(n), n)
-        if inst:
-            self.vcam.setCurrentIndex(max(0, self.vcam.findData(inst.vcam)))
-        form.addRow("Caméra virtuelle", self.vcam)
+        self.vcam_index = inst.vcam if inst else (free[0] if free else None)
+        self.vcam_label = QLabel()
+        self.vcam_label.setToolTip("Nom de la caméra dans Discord, Zoom… — il suit la couleur de l'instance")
+        form.addRow("Caméra virtuelle", self.vcam_label)
+        self.colors.on_change = lambda _k: self._refresh_vcam_label()
+        self._refresh_vcam_label()
 
         self.rec_type = QComboBox()
         for key, label in naming.rec_types(manager.settings):
@@ -119,7 +122,8 @@ class InstanceDialog(QDialog):
             self.launch.setChecked(True)
             lay.addWidget(self.launch)
         else:
-            hint = QLabel("Les changements de nom, de couleur et de caméra s'appliquent au prochain lancement de l'instance.")
+            hint = QLabel("Le nom et la couleur s'appliquent à OBS au prochain lancement de l'instance. "
+                          "La caméra virtuelle change de nom tout de suite (redémarre Discord pour le voir).")
             hint.setWordWrap(True)
             hint.setProperty("muted", True)
             lay.addWidget(hint)
@@ -132,11 +136,19 @@ class InstanceDialog(QDialog):
         buttons.rejected.connect(self.reject)
         lay.addWidget(buttons)
 
+    def _refresh_vcam_label(self) -> None:
+        if self.vcam_index is None:
+            self.vcam_label.setText("aucune de libre (9 maximum)")
+            return
+        others = [i for i in self.manager.instances if not self.inst or i.id != self.inst.id]
+        me = InstanceDef(id="_", name="", color=self.colors.value, vcam=self.vcam_index, port=0, password="")
+        self.vcam_label.setText(vcam.display_names(others + [me])[self.vcam_index])
+
     def _accept(self):
         if not self.name.text().strip():
             self.name.setFocus()
             return
-        if self.vcam.currentData() is None:
+        if self.vcam_index is None:
             QMessageBox.warning(self, "Multi OBS", "Plus aucune caméra virtuelle libre (9 maximum).")
             return
         self.accept()
@@ -146,9 +158,9 @@ class InstanceDialog(QDialog):
         if self.inst:
             from dataclasses import replace
             return replace(self.inst, name=name, color=self.colors.value,
-                           vcam=self.vcam.currentData(), start_minimized=self.minimized.isChecked(),
+                           vcam=self.vcam_index, start_minimized=self.minimized.isChecked(),
                            rec_type=self.rec_type.currentData())
-        d = self.manager.new_definition(name, self.colors.value, self.vcam.currentData())
+        d = self.manager.new_definition(name, self.colors.value, self.vcam_index)
         d.start_minimized = self.minimized.isChecked()
         d.rec_type = self.rec_type.currentData()
         d.needs_default_audio = not self.import_cfg.isChecked()
@@ -312,9 +324,10 @@ class SettingsDialog(QDialog):
         self.vcam_status = QLabel()
         self.vcam_status.setWordWrap(True)
         gl.addWidget(self.vcam_status)
-        info = QLabel("Chaque instance a sa propre caméra « OBS Virtual Camera N », utilisable dans "
-                      "Discord, Zoom, le navigateur… ou dans une autre instance (source « Périphérique "
-                      "de capture vidéo »). Pense à redémarrer Discord après une première installation.")
+        info = QLabel("Chaque instance a sa propre caméra virtuelle, au nom de sa couleur (« VCam Rouge », "
+                      "« VCam Bleu »…), utilisable dans Discord, Zoom, le navigateur… ou dans une autre instance "
+                      "(source « Périphérique de capture vidéo »). Pense à redémarrer Discord pour voir un "
+                      "nouveau nom.")
         info.setWordWrap(True)
         info.setProperty("muted", True)
         gl.addWidget(info)
@@ -444,11 +457,12 @@ class SettingsDialog(QDialog):
         if running:
             self.update_btn.setToolTip("Éteins d'abord toutes les instances.")
         lines = []
+        names = self.manager.vcam_names()
         for inst in self.manager.instances:
             scope = vcam.registered_scope(inst.vcam)
-            ok = vcam.is_registered(inst.vcam)
+            ok = vcam.up_to_date(inst.vcam, names[inst.vcam])
             state = "installée ✓" if ok else ("à réparer" if scope else "non installée")
-            lines.append(f"{obsfiles.vcam_name(inst.vcam)} ({inst.name}) : {state}")
+            lines.append(f"{names[inst.vcam]} ({inst.name}) : {state}")
         self.vcam_status.setText("\n".join(lines) or "Aucune instance pour l'instant.")
 
     def _browse(self):
@@ -493,7 +507,8 @@ class SettingsDialog(QDialog):
         if watch is not None:
             watch.start(60_000)
         colors = {i.vcam: i.color for i in self.manager.instances}
-        run_task(self, "Caméras virtuelles", lambda _p: vcam.install(indices, vcam.SCOPE_USER, colors),
+        names = self.manager.vcam_names()
+        run_task(self, "Caméras virtuelles", lambda _p: vcam.install(indices, vcam.SCOPE_USER, colors, names),
                  on_done=done)
 
     def _uninstall_vcams(self):

@@ -113,6 +113,26 @@ def runtime_signature() -> dict | None:
         return None
 
 
+_remux_titles: frozenset[str] | None = None
+
+
+def remux_titles() -> frozenset[str]:
+    """Titres de la fenêtre de conversion d'OBS dans toutes ses langues (« Convertir des enregistrements »…)."""
+    global _remux_titles
+    if _remux_titles is None:
+        titles = {"Remux Recordings", "Convertir des enregistrements"}
+        for f in (paths.RUNTIME / "data" / "obs-studio" / "locale").glob("*.ini"):
+            try:
+                for line in f.read_text("utf-8", errors="replace").splitlines():
+                    if line.startswith("RemuxRecordings="):
+                        titles.add(line.split("=", 1)[1].strip().strip('"'))
+                        break
+            except OSError:
+                continue
+        _remux_titles = frozenset(titles)
+    return _remux_titles
+
+
 def runtime_status(src: Path | None) -> str:
     """'missing', 'outdated' ou 'ok'."""
     sig = runtime_signature()
