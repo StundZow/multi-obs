@@ -35,6 +35,7 @@ DEFAULT_SETTINGS = {
     "filename_template": naming.DEFAULT_TEMPLATE,
     "auto_remux": True,
     "trash_mkv_after_remux": False,
+    "remote_enabled": True,             # pilotage par le plugin Stream Deck (serveur local, 127.0.0.1)
 }
 
 

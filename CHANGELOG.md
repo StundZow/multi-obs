@@ -3,6 +3,29 @@
 Chaque version publiée avec `python release.py X.Y.Z` reprend la section correspondante :
 c'est ce texte que Multi OBS affiche quand il propose la mise à jour.
 
+## 1.0.8
+
+- **Plugin Stream Deck** : pilote chaque OBS, ou toutes les instances d'un coup, avec des touches
+  colorées et lisibles. Rouge = enregistre, orange = en pause, vert = allumé / actif, gris = éteint. En
+  haut de chaque touche, la couleur et le nom de l'OBS, ou « TOUS » avec les couleurs des instances
+  concernées (atténuées si elles sont éteintes).
+  - **Enregistrer** avec le timecode sur la touche ; au choix, appui court = pause et appui long =
+    rec / stop, pour ne jamais couper un rec par erreur.
+  - **Pause** (à l'image près avec « Tous »), **Allumer / Éteindre**, **Caméra virtuelle**, **Voir OBS**.
+  - **Action OBS** : changer de scène, montrer / cacher une source, activer / couper un filtre, couper
+    le son, lancer le live, capture d'écran, rec, pause… et une 2e action en appui long si tu veux. Les
+    touches suivent OBS en direct (scène à l'antenne en vert, source cachée, son coupé en rouge).
+  - Appui long : un cercle blanc grandit jusqu'à couvrir la touche, puis l'action part.
+  - Sécurité : éteindre un OBS qui enregistre est refusé. Si Multi OBS est fermé, un appui sur une
+    touche l'ouvre.
+- **En bas à droite de Multi OBS** : « Stream Deck connecté / déconnecté », ou un bouton pour installer
+  (ou mettre à jour) le plugin en un clic, sans passer par le Marketplace. Aussi dans ⚙ → Stream Deck.
+  Le plugin se connecte tout seul à Multi OBS, en local (cet ordinateur seulement).
+- **Pause à l'image près encore plus sûre** : OBS ignore une pause demandée juste après une reprise
+  (tout en répondant « OK »), ce qui pouvait laisser une instance en rec quand les autres s'arrêtaient.
+  Multi OBS laisse maintenant à OBS le temps qu'il faut, et redemande si besoin, toujours avec le même
+  nombre d'images enlevées partout (0 écart sur 20 pauses, dont 10 juste après une reprise).
+
 ## 1.0.7
 
 - **Pause globale à l'image près** : « Tout en pause » / « Tout reprendre » (et le raccourci) enlèvent

@@ -84,6 +84,11 @@ QFrame#topBar {{ background: {y['grey6']}; border-bottom: 1px solid {y['grey8']}
 QFrame#vsep {{ background: {y['grey4']}; max-width: 1px; min-width: 1px; margin: 4px 6px; }}
 QStatusBar {{ background: {y['grey6']}; color: {y['white5']}; border-top: 1px solid {y['grey8']}; }}
 QStatusBar QLabel {{ color: {y['white5']}; padding: 0 8px; }}
+QStatusBar QLabel#deckDot {{ padding: 0 0 1px 8px; font-size: 9pt; }}
+QStatusBar QLabel#deckText {{ padding: 0 2px; }}
+QToolButton#deckButton {{ background: {y['blue3']}; border: 1px solid {y['blue2']}; border-radius: 4px;
+    padding: 0 9px; min-height: 16px; font-size: 9pt; }}
+QToolButton#deckButton:hover {{ background: {y['blue2']}; border-color: {y['blue1']}; }}
 
 QPushButton, QToolButton {{
     background: {y['grey4']}; border: 1px solid {y['grey4']}; border-radius: 4px;

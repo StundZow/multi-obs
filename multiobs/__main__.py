@@ -131,6 +131,7 @@ def main() -> int:
     win.show()
     applog.log(f"Multi OBS {APP_VERSION} démarré")
     win.watch_vcams()
+    win.apply_remote()
     if "--updated" in sys.argv:
         win.statusBar().showMessage(f"Multi OBS a été mis à jour en version {APP_VERSION}.", 15000)
     QTimer.singleShot(3000, win.updater.check_on_startup)

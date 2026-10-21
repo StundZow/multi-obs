@@ -19,6 +19,8 @@ LAUNCH_ARGS = ["--portable", "--multi", "--disable-updater",
                "--disable-shutdown-check", "--disable-missing-files-check"]
 SILENCE_DB = -50.0
 SILENCE_SECONDS = 10
+# OBS ignore une pause demandée juste après une reprise (tout en répondant « OK ») : on attend un peu.
+RESUME_GUARD_S = 0.3
 METER_FLOOR_DB = -60.0
 LOW_DISK_BYTES = 10 * 1024 ** 3
 
@@ -62,6 +64,9 @@ class InstanceController(QObject):
         # Conversion MKV → MP4 en cours (barre sur la carte) : {"mp4", "total", "progress"…}
         self.remux: dict | None = None
         self._remux_track = QTimer(self, interval=300, timeout=self._track_remux)
+        # Ce que les touches du Stream Deck affichent : (« filter », source, filtre), (« item », scène,
+        # source), (« mute », entrée, "") ; suivi par les événements d'OBS.
+        self._watch_wanted: set[tuple[str, str, str]] = set()
         self.actionFailed.connect(self._remember_failure)
         self._reset_state()
         self._refresh_disk()
@@ -95,9 +100,16 @@ class InstanceController(QObject):
         self.streaming = False
         self.vcam_on = False
         self.rec_time = ""
+        self.rec_ms = 0                 # durée du rec au dernier relevé (gelée pendant une pause)
+        self._rec_ms_at = 0.0
+        self.resumed_at = 0.0           # dernière reprise (horloge monotone)
         self.rec_bytes = 0
         self.rec_path = ""
         self.stream_time = ""
+        self.stream_ms = 0
+        self._stream_ms_at = 0.0
+        self.watched: dict[tuple[str, str, str], bool | None] = {}   # filtres activés, sources visibles
+        self._item_ids: dict[tuple[str, int], str] = {}               # (scène, id) → source
         self.fps = 0.0
         self.cpu = 0.0
         self.memory = 0.0
@@ -134,6 +146,14 @@ class InstanceController(QObject):
         self._failure = message.split(" : ", 1)[-1]
         self._failure_until = time.monotonic() + 15
         self.changed.emit()
+
+    def rec_elapsed_ms(self) -> int:
+        """Durée du rec en cours, comme le timecode d'OBS, prolongée depuis le dernier relevé."""
+        if not self.recording:
+            return 0
+        if self.paused:
+            return self.rec_ms
+        return int(self.rec_ms + (time.monotonic() - self._rec_ms_at) * 1000)
 
     def bytes_per_second(self) -> float:
         s = self._rate_samples
@@ -428,7 +448,53 @@ class InstanceController(QObject):
         self.ws.call("GetVirtualCamStatus", cb=self._on_vcam_status)
         self.ws.call("GetRecordStatus", cb=self._on_record_status)
         self.ws.call("GetStreamStatus", cb=self._on_stream_status)
+        self._requery_watches()
         self.changed.emit()
+
+    # ------------------------------------------------------------------ #
+    # Suivi pour le Stream Deck : filtres, visibilité des sources, sons coupés
+    # ------------------------------------------------------------------ #
+    def set_watches(self, wanted: set[tuple[str, str, str]]) -> None:
+        new = wanted - self._watch_wanted
+        self._watch_wanted = set(wanted)
+        for key in list(self.watched):
+            if key not in wanted:
+                del self.watched[key]
+        if self.connected:
+            for key in new:
+                self._query_watch(key)
+
+    def _requery_watches(self) -> None:
+        if self.connected:
+            for key in self._watch_wanted:
+                self._query_watch(key)
+
+    def _query_watch(self, key: tuple[str, str, str]) -> None:
+        kind, a, b = key
+
+        def store(value) -> None:
+            if key in self._watch_wanted:
+                self.watched[key] = value
+                self.changed.emit()
+        if kind == "filter":
+            self.ws.call("GetSourceFilter", {"sourceName": a, "filterName": b},
+                         lambda ok, d, _s: store(bool(d.get("filterEnabled")) if ok else None))
+        elif kind == "item":
+            def with_id(ok, d, _s):
+                if not ok:
+                    store(None)
+                    return
+                item_id = d.get("sceneItemId")
+                self._item_ids[(a, item_id)] = b
+                self.ws.call("GetSceneItemEnabled", {"sceneName": a, "sceneItemId": item_id},
+                             lambda ok2, d2, _s2: store(bool(d2.get("sceneItemEnabled")) if ok2 else None))
+            self.ws.call("GetSceneItemId", {"sceneName": a, "sourceName": b}, with_id)
+        elif kind == "mute":
+            def muted(ok, d, _s):
+                if ok:
+                    self.mutes[a] = bool(d.get("inputMuted"))
+                    self.changed.emit()
+            self.ws.call("GetInputMute", {"inputName": a}, muted)
 
     def _add_default_audio(self) -> None:
         # Une instance vierge n'a aucune source audio (pas d'assistant de premier lancement).
@@ -478,6 +544,7 @@ class InstanceController(QObject):
             self.recording = d.get("outputActive", False)
             self.paused = d.get("outputPaused", False)
             self.rec_time = (d.get("outputTimecode") or "")[:8]
+            self.rec_ms, self._rec_ms_at = int(d.get("outputDuration") or 0), time.monotonic()
             self.rec_bytes = d.get("outputBytes", 0)
             if self.recording and not self.paused:
                 self._rate_samples.append((time.monotonic(), self.rec_bytes))
@@ -489,6 +556,12 @@ class InstanceController(QObject):
         if ok:
             self.streaming = d.get("outputActive", False)
             self.stream_time = (d.get("outputTimecode") or "")[:8]
+            self.stream_ms, self._stream_ms_at = int(d.get("outputDuration") or 0), time.monotonic()
+
+    def stream_elapsed_ms(self) -> int:
+        if not self.streaming:
+            return 0
+        return int(self.stream_ms + (time.monotonic() - self._stream_ms_at) * 1000)
 
     def _on_vcam_status(self, ok: bool, d: dict, _s: dict) -> None:
         if ok:
@@ -506,8 +579,14 @@ class InstanceController(QObject):
             # obs-websocket annonce « outputActive: false » pendant une PAUSE : l'enregistrement
             # continue pourtant. On se fie donc à l'état, pas à ce booléen.
             if state.endswith("PAUSED"):
+                self.rec_ms, self._rec_ms_at = self.rec_elapsed_ms(), time.monotonic()   # timecode figé
                 self.recording, self.paused = True, True
             elif state.endswith(("RESUMED", "STARTED")):
+                if state.endswith("STARTED"):
+                    self.rec_ms = 0
+                else:
+                    self.resumed_at = time.monotonic()
+                self._rec_ms_at = time.monotonic()
                 self.recording, self.paused = True, False
             elif state.endswith("STOPPED"):
                 self.recording, self.paused = False, False
@@ -524,6 +603,20 @@ class InstanceController(QObject):
                     self._close_when_converted(d.get("outputPath") or "")
         elif etype == "StreamStateChanged":
             self.streaming = d.get("outputActive", False)
+            if d.get("outputState", "").endswith("STARTED"):
+                self.stream_ms, self._stream_ms_at = 0, time.monotonic()
+        elif etype == "SourceFilterEnableStateChanged":
+            key = ("filter", d.get("sourceName", ""), d.get("filterName", ""))
+            if key in self._watch_wanted:
+                self.watched[key] = bool(d.get("filterEnabled"))
+        elif etype == "SceneItemEnableStateChanged":
+            source = self._item_ids.get((d.get("sceneName", ""), d.get("sceneItemId")))
+            key = ("item", d.get("sceneName", ""), source or "")
+            if source is not None and key in self._watch_wanted:
+                self.watched[key] = bool(d.get("sceneItemEnabled"))
+        elif etype in ("SceneItemCreated", "SceneItemRemoved", "SourceFilterCreated", "SourceFilterRemoved",
+                       "SourceFilterNameChanged", "InputCreated"):
+            self._requery_watches()
         elif etype == "VirtualcamStateChanged":
             self.vcam_on = d.get("outputActive", False)
         elif etype == "CurrentProgramSceneChanged":
@@ -533,6 +626,7 @@ class InstanceController(QObject):
             self._refresh_record_dir()
             self._check_pause_support()
             self.mutes.clear()
+            self._requery_watches()
         elif etype == "InputMuteStateChanged":
             self.mutes[d.get("inputName", "")] = d.get("inputMuted", False)
             self.meters.emit()
@@ -540,6 +634,7 @@ class InstanceController(QObject):
             old, new = d.get("oldInputName"), d.get("inputName")
             if old in self.mutes:
                 self.mutes[new] = self.mutes.pop(old)
+            self._requery_watches()
         elif etype == "InputRemoved":
             self.mutes.pop(d.get("inputName", ""), None)
         elif etype == "ExitStarted":
@@ -699,6 +794,10 @@ class InstanceController(QObject):
 
     def pause_record(self):
         if self.connected and self.recording and not self.paused:
+            wait = self.resumed_at + RESUME_GUARD_S - time.monotonic()
+            if wait > 0:
+                QTimer.singleShot(int(wait * 1000) + 1, self.pause_record)
+                return
             report = self._report("mettre en pause")
 
             def cb(ok, d, status):

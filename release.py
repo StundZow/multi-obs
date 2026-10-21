@@ -2,7 +2,7 @@
 
     python release.py 1.1.0
 
-1. met la version dans multiobs/__init__.py
+1. met la version dans multiobs/__init__.py et dans le plugin Stream Deck
 2. construit l'installateur Multi-OBS-Setup.exe, qui contient l'appli (build.py)
 3. commit + tag v1.1.0 + push
 4. crée la release GitHub (seulement l'installateur) avec les notes de CHANGELOG.md (« ## 1.1.0 »)
@@ -38,6 +38,12 @@ def main() -> None:
     init = ROOT / "multiobs" / "__init__.py"
     text = init.read_text("utf-8")
     init.write_text(re.sub(r'APP_VERSION = "[^"]*"', f'APP_VERSION = "{version}"', text), "utf-8")
+    # Plugin : même version (4e chiffre gardé s'il a déjà été corrigé pour cette version).
+    manifest = ROOT / "streamdeck" / "com.stundzow.multiobs.sdPlugin" / "manifest.json"
+    text = manifest.read_text("utf-8")
+    current = re.search(r'"Version": "([^"]*)"', text).group(1)
+    plugin_version = current if current.startswith(f"{version}.") else f"{version}.0"
+    manifest.write_text(re.sub(r'"Version": "[^"]*"', f'"Version": "{plugin_version}"', text, count=1), "utf-8")
 
     subprocess.run([sys.executable, str(ROOT / "build.py")], cwd=ROOT, check=True)
 

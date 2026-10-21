@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Multi OBS</title>
+  <link rel="stylesheet" href="inspector.css">
+  <script src="../bin/keys.js"></script>
+  <script src="inspector.js" defer></script>
+</head>
+<body>
+  <div id="status" class="status"></div>
+
+  <p id="about" class="about"></p>
+
+  <section>
+    <h2><span class="num">1</span>Quel OBS ?</h2>
+    <div id="targets" class="chips"></div>
+    <p id="targetHint" class="hint"></p>
+  </section>
+
+  <section id="pressSection" hidden>
+    <h2><span class="num">2</span><span id="shortTitle">Appui court</span></h2>
+    <div class="tiles" data-press="short"></div>
+    <div class="params" data-press="short"></div>
+    <h2><span class="num">3</span><span id="longTitle">Appui long</span> <span id="longSub" class="sub">— maintenir la touche</span></h2>
+    <div class="tiles" data-press="long"></div>
+    <div class="params" data-press="long"></div>
+    <div id="delay" class="delay">
+      <span>Durée du maintien</span>
+      <input type="range" id="longMs" min="300" max="1500" step="100">
+      <output id="longMsOut"></output>
+    </div>
+    <p id="pressHint" class="hint"></p>
+  </section>
+
+  <section class="legend">
+    <span><i class="sw rec"></i>enregistre</span>
+    <span><i class="sw pause"></i>en pause</span>
+    <span><i class="sw on"></i>allumé / actif</span>
+    <span><i class="sw off"></i>éteint</span>
+  </section>
+</body>
+</html>

@@ -8,12 +8,15 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFrame, QGrid
                                QScrollArea, QSizePolicy, QToolButton, QVBoxLayout, QWidget)
 
 from .. import APP_NAME, APP_VERSION, applog, obsfiles, paths, vcam
+from ..controller import RESUME_GUARD_S
 from ..framesync import FrameSync
 from ..hotkeys import GlobalHotkeys
 from ..manager import AUTOSAVE_SLUG, Manager
 from ..preview import STATE_ACTIVE, STATE_AWAY, STATE_BACKGROUND
+from ..remote import RemoteServer
 from ..syswatch import SystemEvents
 from .card import InstanceCard, MiniChip
+from .deck_status import DeckStatus
 from .dialogs import InstanceDialog, SettingsDialog
 from .tasks import Task, run_task
 from .widgets import FlowLayout, icon
@@ -71,12 +74,15 @@ class MainWindow(QMainWindow):
         self.mini_bar.hide()
         root.addWidget(self.mini_bar)
 
+        self.remote = None   # pilotage par le Stream Deck : lancé par apply_remote()
         self.status_obs = QLabel()
         self.status_vcam = QLabel()
         self.status_hotkeys = QLabel()
+        self.deck_status = DeckStatus(self)
         sb = self.statusBar()
         sb.addWidget(self.status_obs)
         sb.addWidget(self.status_vcam)
+        sb.addPermanentWidget(self.deck_status)
         sb.addPermanentWidget(self.status_hotkeys)
 
         manager.instancesChanged.connect(self.rebuild_cards)
@@ -397,12 +403,13 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ #
     # Lancement / fermeture
     # ------------------------------------------------------------------ #
-    def launch(self, inst_ids: list[str], import_from: dict | None = None) -> None:
+    def launch(self, inst_ids: list[str], import_from: dict | None = None, interactive: bool = True) -> None:
+        """interactive=False (Stream Deck) : aucune question, OBS des instances gardé tel quel."""
         insts = [i for i in self.manager.instances
                  if i.id in inst_ids and not self.manager.controller(i.id).running]
         if not insts:
             return
-        if self.manager.runtime_status() == "outdated" and not self.manager.any_running():
+        if interactive and self.manager.runtime_status() == "outdated" and not self.manager.any_running():
             r = QMessageBox.question(
                 self, APP_NAME,
                 "Ton OBS a été mis à jour depuis la création des instances.\n\n"
@@ -425,9 +432,9 @@ class MainWindow(QMainWindow):
         run_task(self, f"Préparation de {names}",
                  lambda p: self.manager.prepare(insts, p, import_from), on_done=done)
 
-    def launch_all(self) -> None:
+    def launch_all(self, interactive: bool = True) -> None:
         """Allume les instances affichées : les réduites (ex. l'OBS du live) restent comme elles sont."""
-        self.launch([i.id for i in self.manager.instances if not i.card_minimized])
+        self.launch([i.id for i in self.manager.instances if not i.card_minimized], interactive=interactive)
 
     def close_all(self) -> None:
         recording = [c.inst.name for c in self.manager.controllers.values() if c.recording or c.streaming]
@@ -449,15 +456,26 @@ class MainWindow(QMainWindow):
                 if i.include_global and self.manager.controller(i.id).connected]
 
     def toggle_record_all(self) -> None:
-        targets = self._targets()
-        if any(c.recording for c in targets):
-            for c in targets:
-                c.stop_record()
-        else:
-            for c in targets:
-                c.start_record()
+        self.record_all()
 
     def toggle_pause_all(self) -> None:
+        self.pause_all()
+
+    def record_all(self, mode: str = "toggle") -> str:
+        """Rec des instances liées ; mode toggle / on / off. Renvoie "" ou la raison d'un refus."""
+        targets = self._targets()
+        if not targets:
+            return "Rien d'allumé"
+        if mode == "on" or (mode == "toggle" and not any(c.recording for c in targets)):
+            for c in targets:
+                c.start_record()
+        else:
+            for c in targets:
+                c.stop_record()
+        return ""
+
+    def pause_all(self, mode: str = "toggle") -> str:
+        """Pause / reprise des instances liées, à l'image près ; mode toggle / on (pause) / off (reprise)."""
         recs = [c for c in self._targets() if c.recording]
         blocked = [c.inst.name for c in recs if c.pause_blocked and not c.paused]
         if blocked:
@@ -465,14 +483,26 @@ class MainWindow(QMainWindow):
                 "⚠ Pause impossible pour : " + ", ".join(blocked)
                 + " (qualité « Identique au stream ») — clic sur Pause sur la carte pour corriger.", 12000)
         recs = [c for c in recs if not (c.pause_blocked and not c.paused)]
-        if not recs or (self._sync_busy and time.monotonic() - self._sync_started < 10):
-            return
+        if not recs:
+            return "Pause bloquée" if blocked else "Pas de rec"
+        if self._sync_busy and time.monotonic() - self._sync_started < 10:
+            return "Patiente"
+        resume = mode == "off" or (mode == "toggle" and all(c.paused for c in recs))
+        todo = [c for c in recs if c.paused == resume]
+        if not todo:
+            return ""
         # À l'image près : chaque instance enlève exactement la même durée (voir framesync.py).
         self._sync_busy, self._sync_started = True, time.monotonic()
-        if all(c.paused for c in recs):
-            self.framesync.resume([self._sync_target(c) for c in recs])
+        targets = [self._sync_target(c) for c in todo]
+        if resume:
+            self.framesync.resume(targets)
+            return ""
+        wait = max(c.resumed_at for c in todo) + RESUME_GUARD_S - time.monotonic()
+        if wait > 0:   # OBS ignorerait une pause demandée juste après une reprise
+            QTimer.singleShot(int(wait * 1000) + 1, lambda: self.framesync.pause(targets))
         else:
-            self.framesync.pause([self._sync_target(c) for c in recs if not c.paused])
+            self.framesync.pause(targets)
+        return ""
 
     @staticmethod
     def _sync_target(c) -> tuple[str, int, str, str]:
@@ -693,6 +723,25 @@ class MainWindow(QMainWindow):
         ok = sum(1 for i in insts if vcam.is_registered(i.vcam))
         self.status_vcam.setText(f"Caméras virtuelles : {ok}/{len(insts)} installées" if insts else "")
 
+    def apply_remote(self) -> None:
+        """Démarre ou arrête le serveur local du plugin Stream Deck, selon les paramètres."""
+        want = bool(self.manager.settings.get("remote_enabled", True))
+        if want and self.remote is None:
+            server = RemoteServer(self)
+            if server.start():
+                server.clientsChanged.connect(self._refresh_remote_status)
+                self.remote = server
+            else:
+                server.deleteLater()
+        elif not want and self.remote is not None:
+            self.remote.stop()
+            self.remote.deleteLater()
+            self.remote = None
+        self._refresh_remote_status()
+
+    def _refresh_remote_status(self) -> None:
+        self.deck_status.refresh()
+
     def watch_vcams(self) -> None:
         """Remet les caméras virtuelles qui ont disparu de Windows : au démarrage, puis chaque minute
         (sinon elles ne revenaient qu'au prochain allumage des instances)."""
@@ -761,6 +810,8 @@ class MainWindow(QMainWindow):
             if choice == "stop":
                 self.close_all()
         self.hotkeys.clear()
+        if self.remote is not None:
+            self.remote.stop()
         self.framesync.shutdown()
         self.manager.shutdown()
         e.accept()

@@ -34,6 +34,8 @@ EV_OUTPUTS = 1 << 6
 SERIAL_FRAME = 1        # lot exécuté dans le thread graphique, image par image
 LEAD_FRAMES = 3         # la reprise est programmée au moins 3 images après la décision
 MAX_LCM_SECONDS = 1     # cadences différentes : durée commune au plus 1 s, sinon « au mieux »
+PAUSE_CONFIRM_S = 0.5   # sans événement PAUSED après ce délai, on regarde si OBS a ignoré la pause
+PAUSE_TRIES = 4
 
 
 class WsError(Exception):
@@ -386,6 +388,29 @@ class FrameSync(QObject):
             c.events.clear()
         return delays
 
+    def _pause_events(self, clients: dict, asks: dict) -> dict:
+        """Attend les événements PAUSED ; chacun est rattaché à la dernière demande qui le précède.
+        Renvoie {instance: (délai de l'événement, (horodatage du lot, image))}."""
+        found, deadline = {}, time.perf_counter() + PAUSE_CONFIRM_S
+        while len(found) < len(asks) and time.perf_counter() < deadline:
+            pump(list(clients.values()), 0.02)
+            for inst_id, reqs in asks.items():
+                if inst_id in found:
+                    continue
+                for t_ev, etype, d in clients[inst_id].events:
+                    if etype != "RecordStateChanged" or not d.get("outputState", "").endswith("PAUSED"):
+                        continue
+                    # L'événement peut arriver juste avant la réponse du lot (threads différents dans OBS).
+                    before = [r for r in reqs if r[0] <= t_ev + 0.05]
+                    if before:
+                        found[inst_id] = (t_ev - before[-1][0], before[-1])
+                        break
+        return found
+
+    def _record_status(self, clients: dict, ids: list) -> dict:
+        got = self._wait(clients, {i: clients[i].batch([{"requestType": "GetRecordStatus"}]) for i in ids}, 1.0)
+        return {i: _result(results, 0) for i, (_t, results) in got.items()}
+
     def _do_pause(self, targets) -> tuple[list, list]:
         clients, warnings = self._connect(targets)
         names = {t[0]: t[3] for t in targets}
@@ -393,35 +418,68 @@ class FrameSync(QObject):
                                   {"requestType": "PauseRecord"}])
                 for inst_id, c in clients.items()}
         got = self._wait(clients, rids, 2.0)
-        done, report, sent = [], [], {}
+        asks: dict[str, list] = {}    # demandes de pause acceptées : [(horodatage du lot, image)]
+        report = {}
         for inst_id, (t, results) in got.items():
             vs = _result(results, 1)
             num, den = vs.get("fpsNumerator") or 0, vs.get("fpsDenominator") or 0
             if not _ok(results, 2) or not num or not den:
                 warnings.append(f"{names[inst_id]} : pause refusée par OBS")
                 continue
-            frame = _result(results, 0).get("renderTotalFrames")
-            self._paused[inst_id] = {"frame": frame, "t": t, "interval": Fraction(den, num)}
-            done.append(inst_id)
-            sent[inst_id] = t
-            report.append({"id": inst_id, "op": "pause", "frame": frame, "fps": f"{num}/{den}"})
+            asks[inst_id] = [(t, _result(results, 0).get("renderTotalFrames"))]
+            self._paused[inst_id] = {"interval": Fraction(den, num)}
+            report[inst_id] = {"id": inst_id, "op": "pause", "fps": f"{num}/{den}"}
         for inst_id in rids:
             if inst_id not in got:
                 warnings.append(f"{names[inst_id]} : pas de réponse d'OBS pour la pause")
-        delays = self._event_delay(clients, sent, "PAUSED")
-        for r in report:
-            r["delay_ms"] = round(delays.get(r["id"], -1) * 1000, 2)
-            p = self._paused[r["id"]]
-            if r["id"] not in delays:
-                warnings.append(f"{names[r['id']]} : pause non confirmée par OBS, possible décalage d'une image")
+
+        # OBS ignore une pause demandée juste après une reprise (son encodeur n'a pas encore passé
+        # l'instant de la reprise), tout en répondant « OK ». Sans événement PAUSED, on vérifie et on
+        # redemande : chaque instance reprendra N images après SA vraie pause, l'égalité tient.
+        applied = {}
+        for attempt in range(PAUSE_TRIES):
+            applied.update(self._pause_events(clients, {i: r for i, r in asks.items() if i not in applied}))
+            missing = [i for i in asks if i not in applied]
+            if not missing or attempt == PAUSE_TRIES - 1:
+                break
+            status = self._record_status(clients, missing)
+            retry = [i for i in missing if status.get(i, {}).get("outputActive") and not status[i].get("outputPaused")]
+            if not retry:
+                break
+            again = self._wait(clients, {i: clients[i].batch([{"requestType": "GetStats"}, {"requestType": "PauseRecord"}])
+                                         for i in retry}, 2.0)
+            for inst_id, (t, results) in again.items():
+                if _ok(results, 1):
+                    asks[inst_id].append((t, _result(results, 0).get("renderTotalFrames")))
+
+        missing = [i for i in asks if i not in applied]
+        status = self._record_status(clients, missing) if missing else {}
+        done = []
+        for inst_id, reqs in asks.items():
+            p, r = self._paused[inst_id], report[inst_id]
+            r["tries"] = len(reqs)
+            if inst_id in applied:
+                delay, (t, frame) = applied[inst_id]
+                # Pause appliquée plus d'une image après le lot : elle a glissé ; la reprise suivra.
+                late, sure = frames_late(delay, float(p["interval"]))
+                p.update(frame=frame, t=t, late=late)
+                r.update(frame=frame, delay_ms=round(delay * 1000, 2), late=late)
+                if not sure:
+                    warnings.append(f"{names[inst_id]} : OBS a appliqué la pause très tard, possible décalage d'une image")
+            elif status.get(inst_id, {}).get("outputPaused"):
+                t, frame = reqs[-1]
+                p.update(frame=frame, t=t, late=0)
+                r.update(frame=frame, delay_ms=-1)
+                warnings.append(f"{names[inst_id]} : pause non confirmée par OBS, possible décalage d'une image")
+            else:
+                self._paused.pop(inst_id, None)
+                r.update(frame=None, delay_ms=-1)
+                warnings.append(f"{names[inst_id]} : OBS n'a pas mis l'enregistrement en pause")
                 continue
-            # Pause appliquée plus d'une image après le lot : elle a glissé ; la reprise suivra.
-            late, sure = frames_late(delays[r["id"]], float(p["interval"]))
-            p["late"] = late
-            r["late"] = late
-            if not sure:
-                warnings.append(f"{names[r['id']]} : OBS a appliqué la pause très tard, possible décalage d'une image")
-        self.last_report = report
+            done.append(inst_id)
+        for c in clients.values():
+            c.events.clear()
+        self.last_report = list(report.values())
         return done, warnings
 
     def _do_resume(self, targets) -> tuple[list, list]:

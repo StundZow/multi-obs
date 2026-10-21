@@ -9,6 +9,9 @@ dist/
 multiobs/assets/multiobs.ico
 build_notes.md
 
+# Journal du plugin Stream Deck (quand le dossier est relié au logiciel Stream Deck)
+streamdeck/*.sdPlugin/logs/
+
 # Python
 __pycache__/
 *.pyc

@@ -29,6 +29,7 @@ Parce que deux OBS lancés normalement partagent le même dossier de configurati
 - 🧩 **Instances indépendantes** — scènes, profils, plugins et réglages séparés ; aucune ne peut faire planter les autres
 - 🔗 **Pilotage global** — tout allumer, tout enregistrer, tout mettre en pause d'un clic ; une instance déliée (**Link**) reste à part, pratique pour le live
 - ⏸️ **Pause à l'image près** — « Tout en pause » enlève exactement les mêmes images dans chaque enregistrement : les pistes restent calées au montage, pause après pause
+- 🎛️ **Plugin Stream Deck** — des touches colorées pour chaque OBS ou pour tout Multi OBS : rec avec le timecode, pause, allumer / éteindre, scènes, sources, filtres, son, live… en appui court ou long ; installé en un clic
 - 👀 **Aperçu en direct sans compression**, vumètres audio, images perdues, CPU, et alertes (pas de son, disque presque plein, OBS qui attend une réponse)
 - 🗂️ **Instances réduites** — le bouton **œil barré** range une instance dont tu ne te sers pas (l'OBS du live…) dans une barre en bas, avec son état ; **Remettre** la ramène parmi les autres
 - 🎥 **Une caméra virtuelle par instance**, au nom de sa couleur — « VCam Rouge », « VCam Bleu »… pour Discord, Zoom ou une autre instance, sans droits administrateur
@@ -68,6 +69,35 @@ Quand une caméra virtuelle est éteinte, son image d'attente prend la couleur d
 <img src="screenshots/06_vcam.png" width="760" alt="Images d'attente des caméras virtuelles, une par couleur">
 </div>
 
+## Stream Deck
+
+Multi OBS est livré avec son plugin Stream Deck. En bas à droite de la fenêtre, **Plugin Stream Deck : Installer** (ou ⚙ → **Stream Deck**) : le logiciel Stream Deck demande confirmation, puis la catégorie **Multi OBS** apparaît dans sa liste d'actions. Glisse les actions sur tes touches. Pas besoin du Marketplace. Ensuite, le même coin affiche « Stream Deck connecté », et propose de mettre le plugin à jour quand une nouvelle version de Multi OBS en apporte un.
+
+<div align="center">
+<img src="screenshots/10_streamdeck.png" width="680" alt="Stream Deck avec les touches de Multi OBS">
+</div>
+
+En haut de chaque touche, l'OBS qu'elle pilote : sa couleur et son nom, ou **TOUS** avec les couleurs des instances concernées (atténuées si elles sont éteintes). En dessous, son état, toujours dans les mêmes couleurs : **rouge** = enregistre (ou son coupé, live en cours), **orange** = en pause, **vert** = allumé ou actif, **gris** = éteint.
+
+| Action | Ce qu'elle fait |
+|---|---|
+| **Enregistrer** | démarre / arrête le rec, avec le timecode sur la touche. Au choix : appui court = pause et appui long = rec / stop, pour ne jamais couper un rec par erreur |
+| **Pause** | met en pause / reprend, à l'image près avec « Tous » |
+| **Allumer / Éteindre** | allume ou éteint un OBS, ou toutes les instances ; refusé pendant un rec |
+| **Action OBS** | changer de scène, montrer / cacher une source, activer / couper un filtre, couper le son, lancer le live, capture d'écran, rec, pause… et une 2e action en appui long si tu veux (la touche se partage alors en deux) |
+| **Caméra virtuelle** | allume / éteint la VCam d'un OBS |
+| **Voir OBS** | affiche la fenêtre de l'OBS, ou celle de Multi OBS avec « Tous » |
+
+Pendant un appui long, un cercle blanc grandit jusqu'à couvrir la touche, et l'action part quand il la remplit. Les touches suivent OBS en direct : une scène passée à l'antenne, une source cachée ou un son coupé depuis OBS se voient aussi sur le Stream Deck.
+
+« Tous » fait comme les boutons du haut de Multi OBS : allumer / éteindre toutes les instances, enregistrer et mettre en pause les instances liées (**Link**). Si Multi OBS est fermé, un appui sur une touche l'ouvre.
+
+<div align="center">
+<img src="screenshots/11_streamdeck_settings.png" width="340" alt="Réglages d'une Action OBS : quel OBS, action, appui long">
+&nbsp;&nbsp;
+<img src="screenshots/12_settings_streamdeck.png" width="480" alt="Onglet Stream Deck des paramètres de Multi OBS">
+</div>
+
 ## Barre des tâches
 
 Chaque instance porte un nom clair et le logo OBS à sa couleur, pour s'y retrouver d'un coup d'œil :
@@ -98,10 +128,11 @@ Mesuré avec trois instances et les réglages par défaut : 2 à 4 % du processe
 
 - **Une installation OBS portable par instance.** Multi OBS copie ton OBS une fois (`data/runtime`), et chaque instance y pointe par liens physiques : trois instances ne prennent presque pas plus de place qu'une. Chacune a son propre dossier `config/`.
 - **Pilotage par obs-websocket**, intégré à OBS : une connexion pour les commandes et l'état, une seconde en binaire (MessagePack) réservée à l'aperçu.
-- **Pause à l'image près** : chaque OBS a sa propre horloge d'images et coupe une pause sur l'une d'elles ; mis en pause « en même temps », deux OBS peuvent enlever une image de plus ou de moins, et l'écart s'accumule (jusqu'à 6 images après 20 pauses dans nos mesures). Multi OBS exécute la pause et la reprise dans la boucle d'images de chaque OBS (lots obs-websocket « SerialFrame ») et programme chaque reprise exactement N images après la pause : **0 image d'écart sur 100 pauses mesurées** à 60 i/s, aperçus allumés ou non (mesure image par image sur les fichiers enregistrés).
+- **Pause à l'image près** : chaque OBS a sa propre horloge d'images et coupe une pause sur l'une d'elles ; mis en pause « en même temps », deux OBS peuvent enlever une image de plus ou de moins, et l'écart s'accumule (jusqu'à 6 images après 20 pauses dans nos mesures). Multi OBS exécute la pause et la reprise dans la boucle d'images de chaque OBS (lots obs-websocket « SerialFrame ») et programme chaque reprise exactement N images après la pause : **0 image d'écart sur 100 pauses mesurées** à 60 i/s, aperçus allumés ou non (mesure image par image sur les fichiers enregistrés). OBS ignore une pause demandée juste après une reprise (en répondant « OK ») : Multi OBS attend ce qu'il faut et redemande si besoin, sans casser l'égalité.
+- **Stream Deck** : le plugin (Node.js fourni par le logiciel Stream Deck, sans dépendance) parle à Multi OBS par un petit serveur WebSocket local : 127.0.0.1 seulement, jeton renouvelé à chaque démarrage (dans `%LOCALAPPDATA%\Multi OBS\remote.json`), connexions venant d'une page web refusées. Multi OBS pousse l'état des instances, et suit dans OBS ce que les touches affichent (scène à l'antenne, filtres, sources visibles, sons coupés) grâce à ses événements ; le plugin dessine les touches en SVG.
 - **Caméras virtuelles** : le module de caméra virtuelle d'OBS est dupliqué et modifié pour chaque instance (identifiant et mémoire partagée propres), puis enregistré pour l'utilisateur courant.
 - **Installateur unique** : `Multi-OBS-Setup.exe` contient l'appli. Au lancement, il vérifie s'il existe une version plus récente sur GitHub. Les mises à jour de l'appli téléchargent ce même installateur, qui remplace Multi OBS et le relance — les instances OBS continuent de tourner pendant ce temps.
-- **Testé** par une batterie de près de 60 vérifications : enregistrements simultanés avec pauses (durées, images, son), boutons, raccourcis, aperçus, économies, plantages, redémarrage ; et par un banc qui relit chaque image des fichiers pour vérifier que les pauses enlèvent les mêmes images partout.
+- **Testé** par une batterie de près de 60 vérifications : enregistrements simultanés avec pauses (durées, images, son), boutons, raccourcis, aperçus, économies, plantages, redémarrage ; par un banc qui relit chaque image des fichiers pour vérifier que les pauses enlèvent les mêmes images partout ; et par un test de bout en bout du Stream Deck (faux logiciel Stream Deck, vrai plugin, vrais OBS : 96 vérifications).
 
 Les données sont dans le dossier d'installation :
 

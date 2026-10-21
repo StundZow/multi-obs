@@ -1,14 +1,14 @@
 """Fenêtres : création / modification d'instance, paramètres."""
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                                QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QInputDialog,
                                QKeySequenceEdit, QLabel, QLineEdit, QListWidget, QListWidgetItem,
                                QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget)
 
-from .. import applog, naming, obsfiles, paths, theme, vcam
+from .. import applog, naming, obsfiles, paths, streamdeck, theme, vcam
 from ..instance_config import InstanceDef
 from .tasks import run_task
 from .widgets import SwatchButtonPainter
@@ -175,7 +175,7 @@ class SettingsDialog(QDialog):
         self.manager = manager
         self.main = main
         lay = _base_dialog(self, "Paramètres de Multi OBS")
-        self.setMinimumWidth(620)
+        self.setMinimumWidth(680)   # les six onglets visibles d'un coup
         tabs = QTabWidget()
         lay.addWidget(tabs)
 
@@ -187,8 +187,9 @@ class SettingsDialog(QDialog):
             tabs.addTab(w, title)
             return v
 
-        general, recs, preview, vcams, keys = (page("Général"), page("Enregistrements"), page("Aperçu"),
-                                               page("Caméras virtuelles"), page("Raccourcis"))
+        general, recs, preview, vcams, keys, deck = (page("Général"), page("Enregistrements"), page("Aperçu"),
+                                                     page("Caméras virtuelles"), page("Raccourcis"),
+                                                     page("Stream Deck"))
 
         # ---- Général : OBS, fenêtre, mises à jour
         g = QGroupBox("OBS Studio")
@@ -356,19 +357,107 @@ class SettingsDialog(QDialog):
             w.setMaximumSequenceLength(1)
         form.addRow("Tout enregistrer / arrêter", self.hk_record)
         form.addRow("Tout mettre en pause / reprendre", self.hk_pause)
-        hint = QLabel("Ils agissent sur les instances liées (Link). Pratique aussi avec un Stream Deck "
-                      "(action « Raccourci clavier »).")
+        hint = QLabel("Ils agissent sur les instances liées (Link). Pour un Stream Deck, le plugin Multi OBS "
+                      "fait bien plus : onglet « Stream Deck ».")
         hint.setWordWrap(True)
         hint.setProperty("muted", True)
         form.addRow(hint)
         keys.addWidget(g)
         keys.addStretch(1)
 
+        # ---- Stream Deck : plugin livré avec Multi OBS + serveur local qu'il utilise
+        g = QGroupBox("Plugin Stream Deck")
+        gl = QVBoxLayout(g)
+        self.sd_status = QLabel()
+        self.sd_status.setWordWrap(True)
+        gl.addWidget(self.sd_status)
+        info = QLabel("Des touches colorées pour chaque OBS, ou pour toutes les instances : enregistrer, pause "
+                      "à l'image près, allumer / éteindre, caméra virtuelle, timecode du rec, et une touche à "
+                      "appui court / appui long. Une fois installé : catégorie « Multi OBS » dans la liste des "
+                      "actions du logiciel Stream Deck, glisse les actions sur tes touches.")
+        info.setWordWrap(True)
+        info.setProperty("muted", True)
+        gl.addWidget(info)
+        row = QHBoxLayout()
+        self.sd_install = QPushButton("Installer le plugin")
+        self.sd_install.clicked.connect(self._install_streamdeck)
+        row.addWidget(self.sd_install)
+        self.sd_hint = QLabel()
+        self.sd_hint.setWordWrap(True)
+        self.sd_hint.setProperty("muted", True)
+        row.addWidget(self.sd_hint, 1)
+        gl.addLayout(row)
+        deck.addWidget(g)
+
+        g = QGroupBox("Connexion")
+        gl = QVBoxLayout(g)
+        self.remote_enabled = QCheckBox("Autoriser le pilotage par le Stream Deck")
+        self.remote_enabled.setChecked(bool(manager.settings.get("remote_enabled", True)))
+        self.remote_enabled.toggled.connect(self._toggle_remote)
+        gl.addWidget(self.remote_enabled)
+        self.remote_status = QLabel()
+        self.remote_status.setWordWrap(True)
+        gl.addWidget(self.remote_status)
+        hint = QLabel("Connexion locale (cet ordinateur seulement), protégée par un jeton : une page web ne peut "
+                      "pas piloter tes OBS.")
+        hint.setWordWrap(True)
+        hint.setProperty("muted", True)
+        gl.addWidget(hint)
+        deck.addWidget(g)
+        deck.addStretch(1)
+        self._deck_timer = QTimer(self, interval=1000, timeout=self._refresh_streamdeck)
+        self._deck_timer.start()
+        self._refresh_streamdeck()
+
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         buttons.button(QDialogButtonBox.StandardButton.Close).setText("Fermer")
         buttons.rejected.connect(self.reject)
         lay.addWidget(buttons)
         self._refresh()
+
+    # Stream Deck ---------------------------------------------------------- #
+    def _refresh_streamdeck(self) -> None:
+        bundled, installed = streamdeck.bundled_version(), streamdeck.installed_version()
+        if not streamdeck.software_installed():
+            text, button = "Logiciel Stream Deck introuvable : installe-le depuis elgato.com, puis reviens ici.", ""
+        elif not installed:
+            text, button = "Plugin pas encore installé.", "Installer le plugin"
+        elif streamdeck.is_outdated(installed):
+            text, button = (f"Plugin installé en version {installed} : la version {bundled} est prête.",
+                            "Mettre à jour le plugin")
+        else:
+            text, button = f"✓ Plugin installé (version {streamdeck.short(installed)}).", "Réinstaller le plugin"
+        self.sd_status.setText(text)
+        self.sd_install.setVisible(bool(button))
+        self.sd_install.setText(button)
+        remote = getattr(self.main, "remote", None)
+        if not self.manager.settings.get("remote_enabled", True):
+            status = "Pilotage désactivé."
+        elif remote is None:
+            status = "Serveur local arrêté."
+        elif remote.connected_clients():
+            status = "✓ Stream Deck connecté."
+        else:
+            status = f"En attente du Stream Deck (port {remote.port})."
+        self.remote_status.setText(status)
+
+    def _install_streamdeck(self) -> None:
+        if not streamdeck.source().is_dir():
+            QMessageBox.warning(self, "Multi OBS", "Plugin introuvable dans cette installation de Multi OBS.")
+            return
+        try:
+            streamdeck.install()
+        except OSError as e:
+            QMessageBox.warning(self, "Multi OBS", f"Le logiciel Stream Deck n'a pas pu ouvrir le plugin :\n{e}")
+            return
+        self.sd_hint.setText("Le logiciel Stream Deck s'ouvre : accepte l'installation, c'est tout.")
+
+    def _toggle_remote(self, on: bool) -> None:
+        self.manager.settings["remote_enabled"] = on
+        self.manager.save()
+        if hasattr(self.main, "apply_remote"):
+            self.main.apply_remote()
+        self._refresh_streamdeck()
 
     # Types d'enregistrement ---------------------------------------------- #
     def _add_type_item(self, label: str, key: str | None) -> None:

@@ -16,6 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 DIST = ROOT / "dist"
 ICON = ROOT / "multiobs" / "assets" / "multiobs.ico"
+PLUGIN = ROOT / "streamdeck" / "com.stundzow.multiobs.sdPlugin"   # plugin Stream Deck livré avec l'appli
 
 
 def make_icon() -> None:
@@ -47,6 +48,7 @@ def pyinstaller(*args: str) -> None:
 def build_app() -> Path:
     pyinstaller("--name", "Multi-OBS",
                 "--add-data", f"{ROOT / 'multiobs' / 'assets'};multiobs/assets",
+                "--add-data", f"{PLUGIN};streamdeck/{PLUGIN.name}",
                 "--hidden-import", "PySide6.QtSvg",
                 str(ROOT / "Multi OBS.pyw"))
     exe = DIST / "Multi-OBS.exe"

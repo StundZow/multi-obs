@@ -1,0 +1,194 @@
+:root {
+  --bg: #2d2d2d;
+  --card: #393b42;
+  --card-hover: #43464e;
+  --line: #4a4d56;
+  --text: #f3f4f6;
+  --muted: #b0b4be;
+  --dim: #80858f;
+  --rec: #e5243b;
+  --pause: #f5a30a;
+  --on: #1d9f48;
+  --blue: #476bd7;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.35 "Segoe UI", system-ui, sans-serif;
+}
+
+body {
+  padding: 10px 14px 16px;
+  user-select: none;
+}
+
+button { font: inherit; color: inherit; cursor: pointer; }
+
+/* ---- Connexion à Multi OBS */
+.status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 7px 8px 7px 12px;
+  border-radius: 10px;
+  background: #25402d;
+  font-weight: 600;
+}
+.status .dot {
+  width: 11px;
+  height: 11px;
+  flex: none;
+  border-radius: 50%;
+  background: #35d36a;
+  box-shadow: 0 0 0 4px rgba(53, 211, 106, 0.22);
+}
+.status.closed { background: #3b3c42; }
+.status.closed .dot { background: var(--dim); box-shadow: none; }
+.status.launching { background: #46391d; }
+.status.launching .dot { background: var(--pause); box-shadow: 0 0 0 4px rgba(245, 163, 10, 0.25); animation: pulse 1s ease-in-out infinite; }
+.status .txt { display: flex; flex-direction: column; }
+.status small { font-weight: 400; color: var(--muted); }
+.status button {
+  margin-left: auto;
+  padding: 6px 14px;
+  border: none;
+  border-radius: 8px;
+  background: var(--blue);
+  color: #fff;
+  font-weight: 700;
+}
+.status button:hover { background: #5a7be0; }
+
+@keyframes pulse { 50% { opacity: 0.35; } }
+
+.about { margin: 10px 2px 0; color: var(--muted); }
+
+/* ---- Sections */
+section { margin-top: 16px; }
+h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+h2 .num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 21px;
+  height: 21px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--blue);
+  color: #fff;
+  font-size: 12px;
+}
+h2 .sub { color: var(--muted); font-weight: 400; }
+.hint { margin: 8px 2px 0; color: var(--muted); font-size: 12px; }
+
+/* ---- Pastilles : quel OBS */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  padding: 5px 15px 5px 7px;
+  border: 2px solid transparent;
+  border-radius: 21px;
+  background: var(--card);
+  font-weight: 700;
+  text-align: left;
+}
+.chip:hover { background: var(--card-hover); }
+.chip .dot {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  background: var(--c);
+}
+.chip .txt { display: flex; flex-direction: column; line-height: 1.15; }
+.chip small { color: var(--muted); font-size: 11px; font-weight: 400; }
+.chip.selected { background: var(--c); border-color: #fff; color: #fff; box-shadow: 0 3px 12px rgba(0, 0, 0, 0.4); }
+.chip.selected small { color: rgba(255, 255, 255, 0.9); }
+.chip.selected .dot { border-color: #fff; }
+.chip.missing { border: 2px dashed var(--rec); }
+
+/* ---- Tuiles : quelle action */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 11px 4px 9px;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  background: var(--card);
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.15;
+  text-align: center;
+}
+.tile:hover { background: var(--card-hover); }
+.tile svg { width: 32px; height: 32px; }
+.tile.selected { border-color: var(--c); background: var(--ct); box-shadow: 0 3px 12px rgba(0, 0, 0, 0.35); }
+
+.tile:disabled { opacity: 0.32; cursor: not-allowed; box-shadow: none; }
+.tile:disabled:hover { background: var(--card); }
+
+/* ---- Réglages d'une action : scène, source, filtre, son */
+.params { display: flex; flex-direction: column; gap: 8px; margin: -4px 0 14px; }
+.params:empty { display: none; }
+.param { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; background: var(--card); }
+.param label { min-width: 96px; font-weight: 700; color: var(--muted); }
+.param select {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid #555963;
+  border-radius: 8px;
+  background: #2b2d33;
+  color: var(--text);
+  font: inherit;
+}
+.param select:disabled { opacity: 0.55; }
+.params .note { margin: 0 2px; color: var(--muted); font-size: 12px; }
+
+/* ---- Durée de l'appui long */
+.delay { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; padding: 10px 12px; border-radius: 10px; background: var(--card); font-weight: 600; }
+.delay input { flex: 1; accent-color: var(--blue); }
+.delay output { min-width: 44px; text-align: right; font-weight: 700; }
+
+/* ---- Légende des couleurs des touches */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+.sw { display: inline-block; width: 12px; height: 12px; margin-right: 6px; border-radius: 3px; vertical-align: -1px; }
+.sw.rec { background: var(--rec); }
+.sw.pause { background: var(--pause); }
+.sw.on { background: var(--on); }
+.sw.off { background: #1c1d22; border: 1px solid #5b606d; }
+
+[hidden] { display: none !important; }
