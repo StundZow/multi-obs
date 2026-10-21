@@ -138,4 +138,4 @@ Le script reconstruit l'appli et l'installateur (`pip install pyinstaller pillow
 
 ---
 
-Les icônes de l'interface et le logo OBS proviennent d'[OBS Studio](https://github.com/obsproject/obs-studio) (GPL-2.0).
+Multi OBS est un projet indépendant, non affilié à l'OBS Project. Il pilote ton installation d'[OBS Studio](https://github.com/obsproject/obs-studio) sans la modifier ; les icônes de l'interface et le logo OBS proviennent d'OBS Studio (GPL-2.0).
