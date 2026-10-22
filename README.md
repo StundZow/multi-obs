@@ -52,12 +52,28 @@ Parce que deux OBS lancés normalement partagent le même dossier de configurati
 1. [Télécharge `Multi-OBS-Setup.exe`](https://github.com/StundZow/multi-obs/releases/latest/download/Multi-OBS-Setup.exe) et lance-le — pas besoin d'être administrateur. [OBS Studio](https://obsproject.com/) doit être installé.
 2. Trois cases à cocher (menu Démarrer, bureau, lancer à la fin) et un dossier d'installation modifiable.
 3. **Nouvelle instance** : un nom, une couleur, un type. « Partir de mes scènes et réglages OBS actuels » copie ta config OBS — ton OBS habituel n'est pas modifié.
-4. **Voir OBS** pour régler les scènes de l'instance, puis pilote tout depuis Multi OBS : **Rec**, **Pause**, **VCam**, et les boutons du haut pour toutes les instances liées.
+4. **Voir OBS** pour régler les scènes de l'instance, puis pilote tout depuis Multi OBS : **Rec**, **Pause**, **VCam**, et les boutons du haut pour toutes les instances liées. Avec **Tout enregistrer**, Multi OBS cale les fichiers à l'image près pendant la première seconde (une courte pause) : attends 1 à 2 secondes avant de parler.
 5. Remplis **Nom** et **Vidéo** en haut : chaque fichier s'appellera par exemple `Stund-cam-Tuto-2026-10-20_17-49-50.mp4`.
 6. Une instance ne sert pas aujourd'hui (l'OBS du live…) ? Le bouton **œil barré** de sa carte la range en bas, avec son état ; **Remettre** la ramène :
 
 <div align="center">
 <img src="screenshots/09_minimized.png" width="680" alt="Barre des instances réduites">
+</div>
+
+## Alertes
+
+Si quelque chose cloche pendant un rec ou un live, Multi OBS le dit tout de suite, sans aucun bruit pour que rien ne s'entende dans tes recs : bandeau rouge en haut de la fenêtre, message en rouge sur la carte de l'instance, bouton de la barre des tâches qui clignote. **Masquer** cache le bandeau jusqu'au prochain problème.
+
+<div align="center">
+<img src="screenshots/13_alertes.png" width="760" alt="Alerte « micro perdu » : bandeau rouge et carte de l'instance en rouge">
+</div>
+
+Ce qui est surveillé : rec bloqué (le fichier ne grossit plus), rec qui ne démarre pas, arrêt qui ne se termine pas, OBS fermé ou planté pendant le rec, fenêtre d'erreur d'OBS, son qui décroche ou micro perdu, webcam ou carte d'acquisition en erreur, encodeur en panne, écriture du fichier impossible, carte graphique perdue, images perdues en rafale ou sautées à l'encodage, disque presque plein, et une deuxième capture de jeu du même jeu (elle enregistrerait du noir).
+
+Sur le Stream Deck, les touches de l'OBS concerné et les touches **TOUS** prennent un cadre rouge et affichent « ALERTE » une seconde sur deux :
+
+<div align="center">
+<img src="screenshots/14_streamdeck_alerte.png" width="680" alt="Stream Deck : touches de Caméra et touches TOUS en alerte, « ALERTE » une seconde sur deux">
 </div>
 
 ## Caméras virtuelles
@@ -91,7 +107,7 @@ En haut de chaque touche, l'OBS qu'elle pilote : sa couleur et son nom, ou **TOU
 
 Pendant un appui long, un cercle blanc grandit jusqu'à couvrir la touche, et l'action part quand il la remplit. Les touches suivent OBS en direct : une scène passée à l'antenne, une source cachée ou un son coupé depuis OBS se voient aussi sur le Stream Deck.
 
-« Tous » fait comme les boutons du haut de Multi OBS : allumer / éteindre toutes les instances, enregistrer et mettre en pause les instances liées (**Link**). Si Multi OBS est fermé, un appui sur une touche l'ouvre.
+« Tous » fait comme les boutons du haut de Multi OBS : allumer / éteindre toutes les instances, enregistrer et mettre en pause les instances liées (**Link**). Si Multi OBS est fermé, un appui sur une touche l'ouvre. En cas de problème grave, les touches passent en alerte (voir [Alertes](#alertes)).
 
 <div align="center">
 <img src="screenshots/11_streamdeck_settings.png" width="340" alt="Réglages d'une Action OBS : quel OBS, action, appui long">
@@ -130,7 +146,7 @@ Mesuré avec trois instances et les réglages par défaut : 2 à 4 % du processe
 - **Une installation OBS portable par instance.** Multi OBS copie ton OBS une fois (`data/runtime`), et chaque instance y pointe par liens physiques : trois instances ne prennent presque pas plus de place qu'une. Chacune a son propre dossier `config/`.
 - **Pilotage par obs-websocket**, intégré à OBS : une connexion pour les commandes et l'état, une seconde en binaire (MessagePack) réservée à l'aperçu.
 - **Pause à l'image près** : chaque OBS a sa propre horloge d'images et coupe une pause sur l'une d'elles ; mis en pause « en même temps », deux OBS peuvent enlever une image de plus ou de moins, et l'écart s'accumule (jusqu'à 6 images après 20 pauses dans nos mesures). Multi OBS exécute la pause et la reprise dans la boucle d'images de chaque OBS (lots obs-websocket « SerialFrame ») et programme chaque reprise exactement N images après la pause : **0 image d'écart sur 100 pauses mesurées** à 60 i/s, aperçus allumés ou non (mesure image par image sur les fichiers enregistrés). OBS ignore une pause demandée juste après une reprise (en répondant « OK ») : Multi OBS attend ce qu'il faut et redemande si besoin, sans casser l'égalité.
-- **Départ et arrêt à l'image près** : obs-websocket ne dit pas à quelle image commence un fichier, et chaque OBS démarre son rec quand son interface le peut (0 à 7 images d'écart mesurées). Multi OBS ajoute à chaque instance un petit module OBS open source ([`obsplugin/multiobs-sync.c`](obsplugin/multiobs-sync.c)) qui relève, pour chaque image écrite, son heure de rendu et sa position dans le fichier. Juste après le départ, les instances parties en avance font une pause de quelques images, puis tout est revérifié ; à l'arrêt, chaque OBS coupe sur la même position. Mesuré avec un flash (une image blanche envoyée à toutes les instances à la même image) : **65 départs et 65 arrêts alignés au mieux sur 65**, avec plusieurs réglages (il reste au plus une fraction d'image : les horloges d'images des OBS ne sont pas en phase). Chaque pause resynchronise aussi les fichiers. Les pauses d'alignement durent au moins 0,1 s : une pause de moins de 21 ms fait perdre le son à OBS pour de bon (bug d'OBS) et l'enregistrement ne peut plus s'arrêter.
+- **Départ et arrêt à l'image près** : obs-websocket ne dit pas à quelle image commence un fichier, et chaque OBS démarre son rec quand son interface le peut (0 à 7 images d'écart mesurées en banc, 16 lors d'un vrai rec). Multi OBS ajoute à chaque instance un petit module OBS open source ([`obsplugin/multiobs-sync.c`](obsplugin/multiobs-sync.c)) qui relève, pour chaque image écrite, son heure de rendu et sa position dans le fichier. Tout se fait pendant le rec, les fichiers ne sont jamais retouchés après : juste après le départ, toutes les instances font une courte pause sur la même image, celles parties en avance y restent plus longtemps (exactement leur nombre d'images d'avance), puis tout est revérifié ; à l'arrêt, chaque OBS coupe sur la même position. Seul effet visible : un petit saut (0,1 s, plus l'avance éventuelle) dans la première seconde de chaque fichier, son et image ensemble. Mesuré avec un flash (une image blanche envoyée à toutes les instances à la même image) : **65 départs et 65 arrêts alignés au mieux sur 65**, avec plusieurs réglages (il reste au plus une fraction d'image : les horloges d'images des OBS ne sont pas en phase). Chaque pause resynchronise aussi les fichiers. Les pauses d'alignement durent au moins 0,1 s : une pause de moins de 21 ms fait perdre le son à OBS pour de bon (bug d'OBS) et l'enregistrement ne peut plus s'arrêter.
 - **Bridage de Windows 11 évité** : réduit ou en arrière-plan, un programme n'obtient plus la minuterie précise qu'il demande ; OBS rendait alors chaque image jusqu'à 15 ms après son heure (petites saccades). Multi OBS retire ce bridage pour ses OBS : moins de 2 ms.
 - **Testé sous la charge d'un jeu** : un programme Direct3D 11 capturé en capture de jeu (carte graphique à 99-100 %, 6 Go de mémoire vidéo), des chargements (processeur à 100 %, 6 Go écrits sur le disque) et des pics, avec des pauses régulières, comparé à trois OBS lancés seuls. Aucun plantage, fichiers intacts, son calé sur l'image à quelques millisecondes près, mêmes nombres d'images dans les trois fichiers. Quand carte graphique et processeur saturent ensemble, des OBS seuls répètent 12 à 14 % des images (encodeur qui décroche) ; Multi OBS, qui met ses OBS en priorité « au-dessus de la normale » : 0 à 0,1 % (une fois 7 % pour l'instance 4K, la plus lourde, et l'alerte « images perdues » le signale).
 - **Alertes** : en plus de l'état donné par obs-websocket (fichier qui ne grossit plus, OBS fermé, images perdues…), Multi OBS lit le journal de chaque OBS en direct : son qui décroche, périphérique perdu, encodeur en panne, écriture impossible, carte graphique perdue.
