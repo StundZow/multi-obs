@@ -19,15 +19,12 @@ from .preview import PreviewChannel
 LAUNCH_ARGS = ["--portable", "--multi", "--disable-updater",
                "--disable-shutdown-check", "--disable-missing-files-check"]
 SILENCE_DB = -50.0
-SILENCE_SECONDS = 10
 # OBS ignore une pause demandée juste après une reprise (tout en répondant « OK ») : on attend un peu.
 RESUME_GUARD_S = 0.3
-# Quelques images perdues au démarrage d'OBS sont courantes : pas d'alerte avant 10 au total (sauf réglage).
-DROP_ALERT_MIN = 10
-# Alerte grave (bandeau, Stream Deck) : au moins 6 images perdues en 10 s.
+# Alerte grave (bandeau, Stream Deck) : au moins 6 images perdues en 10 s. Les seuils réglables (silence,
+# images perdues, disque presque plein) sont dans les paramètres, onglet SafeGuard.
 DROP_BURST_FRAMES, DROP_BURST_S = 6, 10
 METER_FLOOR_DB = -60.0
-LOW_DISK_BYTES = 10 * 1024 ** 3
 # Rec (hors pause) dont le fichier ne grossit plus pendant 10 s : bloqué (encodeur, son ou disque en panne).
 # Pas moins : sous très forte charge, l'encodeur peut avoir plusieurs secondes de retard après une reprise.
 STALL_S = 10
@@ -44,6 +41,14 @@ def _db(mul: float) -> float:
 
 def _same_path(a: str, b: str) -> bool:
     return os.path.normcase(os.path.normpath(a)) == os.path.normcase(os.path.normpath(b))
+
+
+def duration_text(seconds: float) -> str:
+    """45 s, 2 min, 2 min 05 s."""
+    m, s = divmod(int(seconds), 60)
+    if not m:
+        return f"{s} s"
+    return f"{m} min {s:02d} s" if s else f"{m} min"
 
 
 class InstanceController(QObject):
@@ -251,7 +256,8 @@ class InstanceController(QObject):
             self._raise("dialog", f"OBS affiche une erreur : « {self.obs_dialogs[0]} » — clique « Voir OBS »")
         else:
             self._clear("dialog")
-        if self.disk_total and self.disk_free < LOW_DISK_BYTES and (rec or self.streaming):
+        low_disk = float(self.settings.get("low_disk_gb", 10)) * 1024 ** 3
+        if self.disk_total and self.disk_free < low_disk and (rec or self.streaming):
             self._raise("disk", f"Disque presque plein ({self.disk_free / 1024 ** 3:.1f} Go libres)")
         else:
             self._clear("disk")
@@ -295,13 +301,14 @@ class InstanceController(QObject):
         if now < self._drop_warning_until and self._drop_warning and "drops" not in self.alerts:
             out.append(self._drop_warning)
         active = (self.recording and not self.paused) or self.streaming
+        silence = int(self.settings.get("silence_warn_s", 120))   # 0 : jamais (SafeGuard)
         if active:
             if not self.meter_order:
                 out.append("Aucune source audio")
             elif all(self.mutes.get(n, False) for n in self.meter_order):
                 out.append("Toutes les sources audio sont coupées")
-            elif now - self._last_sound > SILENCE_SECONDS:
-                out.append(f"Pas de son depuis {int(now - self._last_sound)} s")
+            elif silence and now - self._last_sound > silence:
+                out.append(f"Pas de son depuis {duration_text(now - self._last_sound)}")
         return out
 
     # ------------------------------------------------------------------ #
@@ -314,7 +321,7 @@ class InstanceController(QObject):
                 if p.info["name"] and p.info["name"].lower() == "obs64.exe" and p.info["exe"] \
                         and _same_path(p.info["exe"], exe):
                     self.proc = p
-                    winapi.unthrottle(p.pid)
+                    self.apply_throttle()
                     self.ws.open()
                     self.preview_channel.activate(self.inst.port, self.inst.password)
                     return
@@ -331,7 +338,7 @@ class InstanceController(QObject):
         p = subprocess.Popen([str(exe), *LAUNCH_ARGS], cwd=str(exe.parent), close_fds=True, env=env,
                              creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
         self.proc = psutil.Process(p.pid)
-        winapi.unthrottle(p.pid)
+        self.apply_throttle()
         self._expected_exit = False
         self._clear("crash")
         self._reset_state()
@@ -582,6 +589,12 @@ class InstanceController(QObject):
         except psutil.Error:
             pass
 
+    def apply_throttle(self) -> None:
+        """Windows 11 bride les programmes réduits ou en arrière-plan : bridé, OBS rend ses images jusqu'à
+        15 ms en retard (petites saccades dans le rec). Débridé sauf si SafeGuard dit le contraire."""
+        if self.proc:
+            winapi.unthrottle(self.proc.pid, bool(self.settings.get("obs_unthrottle", True)))
+
     def _on_obs_ready(self) -> None:
         self.apply_priority()   # OBS a déjà appliqué sa propre priorité à ce stade
         self._refresh_record_dir()
@@ -673,7 +686,8 @@ class InstanceController(QObject):
         new_output = self._stats_seen and os_ > self.output_skipped
         if new_render or new_output:
             now = time.monotonic()
-            if rs + os_ >= (1 if self.settings.get("drop_alert_always") else DROP_ALERT_MIN):
+            # Quelques images perdues au démarrage d'OBS sont courantes : avertissement à partir du seuil SafeGuard.
+            if rs + os_ >= max(1, int(self.settings.get("drop_warn_frames", 10))):
                 self._drop_warning = (f"Images perdues à l'encodage (+{os_ - self.output_skipped})" if new_output
                                       else f"Images perdues au rendu (+{rs - self.render_skipped})")
                 self._drop_warning_until = now + 8
@@ -748,6 +762,7 @@ class InstanceController(QObject):
                 self.recording, self.paused = True, True
             elif state.endswith(("RESUMED", "STARTED")):
                 self._resumed_qpc = time.perf_counter_ns()   # même horloge que les images d'OBS
+                self._last_sound = time.monotonic()   # silence compté pendant le rec (pas avant, ni en pause)
                 if state.endswith("STARTED"):
                     self._stop_asked = 0.0   # rec arrêté puis relancé entre deux relevés
                     self._start_asked = 0.0
@@ -781,6 +796,7 @@ class InstanceController(QObject):
             self.streaming = d.get("outputActive", False)
             if d.get("outputState", "").endswith("STARTED"):
                 self.stream_ms, self._stream_ms_at = 0, time.monotonic()
+                self._last_sound = time.monotonic()
         elif etype == "SourceFilterEnableStateChanged":
             key = ("filter", d.get("sourceName", ""), d.get("filterName", ""))
             if key in self._watch_wanted:

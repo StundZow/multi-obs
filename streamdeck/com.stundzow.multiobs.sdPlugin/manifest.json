@@ -2,7 +2,7 @@
   "$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
   "UUID": "com.stundzow.multiobs",
   "Name": "Multi OBS",
-  "Version": "1.1.0.0",
+  "Version": "1.1.1.0",
   "Author": "StundZow",
   "Description": "Pilote les OBS de Multi OBS avec des touches colorées : enregistrer (timecode sur la touche), pause à l'image près, allumer / éteindre, caméra virtuelle, et une touche « Action OBS » pour les scènes, sources, filtres, son, live et capture, en appui court et en appui long. Pour un OBS, ou pour toutes les instances d'un coup.",
   "URL": "https://github.com/StundZow/multi-obs",

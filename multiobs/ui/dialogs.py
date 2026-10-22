@@ -4,11 +4,12 @@ from pathlib import Path
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
-                               QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QInputDialog,
+                               QFileDialog, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QInputDialog,
                                QKeySequenceEdit, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-                               QMessageBox, QPushButton, QTabWidget, QVBoxLayout, QWidget)
+                               QMessageBox, QPushButton, QSlider, QTabWidget, QVBoxLayout, QWidget)
 
 from .. import applog, naming, obsfiles, paths, streamdeck, theme, vcam
+from ..controller import duration_text
 from ..instance_config import InstanceDef
 from .tasks import run_task
 from .widgets import SwatchButtonPainter
@@ -18,6 +19,41 @@ PREVIEW_FPS_CHOICES = [(0, "Désactivé"), (1, "1 image/s"), (5, "5 images/s"), 
 PREVIEW_QUALITY_CHOICES = [(1, "1/1 — pleine résolution"), (2, "1/2"), (4, "1/4"), (8, "1/8")]
 PREVIEW_BACKGROUND_CHOICES = [(-1, "Comme au premier plan"), (5, "5 images/s"), (1, "1 image/s"),
                               (0, "En pause")]
+# SafeGuard : crans des curseurs (silence en secondes, 0 = jamais ; images ; Go)
+SILENCE_CHOICES = [10, 20, 30, 45, 60, 90, 120, 180, 300, 600, 0]
+DROP_WARN_CHOICES = [1, 2, 3, 5, 10, 20, 30, 50, 100]
+LOW_DISK_CHOICES = [2, 5, 10, 20, 50, 100]
+
+
+class StepSlider(QWidget):
+    """Curseur à crans sur une liste de valeurs, la valeur choisie écrite à droite."""
+
+    def __init__(self, choices: list[int], current: int, text):
+        super().__init__()
+        self.choices, self.text = choices, text
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(14)
+        self.slider = QSlider(Qt.Orientation.Horizontal)
+        self.slider.setRange(0, len(choices) - 1)
+        self.slider.setPageStep(1)
+        self.value_label = QLabel(objectName="sliderValue")
+        lay.addWidget(self.slider, 1)
+        lay.addWidget(self.value_label)
+        # Valeur écrite à la main dans multiobs.json : le cran le plus proche (« jamais » seulement pour 0).
+        if current in choices:
+            index = choices.index(current)
+        else:
+            index = min((i for i, v in enumerate(choices) if v), key=lambda i: abs(choices[i] - current))
+        self.slider.setValue(index)
+        self.slider.valueChanged.connect(self._show)
+        self._show()
+
+    def _show(self) -> None:
+        self.value_label.setText(self.text(self.value()))
+
+    def value(self) -> int:
+        return self.choices[self.slider.value()]
 
 
 def _base_dialog(dlg: QDialog, title: str) -> QVBoxLayout:
@@ -175,7 +211,7 @@ class SettingsDialog(QDialog):
         self.manager = manager
         self.main = main
         lay = _base_dialog(self, "Paramètres de Multi OBS")
-        self.setMinimumWidth(680)   # les six onglets visibles d'un coup
+        self.setMinimumWidth(770)   # les sept onglets visibles d'un coup
         tabs = QTabWidget()
         lay.addWidget(tabs)
 
@@ -187,9 +223,9 @@ class SettingsDialog(QDialog):
             tabs.addTab(w, title)
             return v
 
-        general, recs, preview, vcams, keys, deck = (page("Général"), page("Enregistrements"), page("Aperçu"),
-                                                     page("Caméras virtuelles"), page("Raccourcis"),
-                                                     page("Stream Deck"))
+        general, safe, recs, preview, vcams, keys, deck = (
+            page("Général"), page("SafeGuard"), page("Enregistrements"), page("Aperçu"),
+            page("Caméras virtuelles"), page("Raccourcis"), page("Stream Deck"))
 
         # ---- Général : OBS, fenêtre, mises à jour
         g = QGroupBox("OBS Studio")
@@ -226,27 +262,6 @@ class SettingsDialog(QDialog):
         form.addRow(self.taskbar_rename)
         general.addWidget(g)
 
-        g = QGroupBox("Alertes")
-        gl = QVBoxLayout(g)
-        self.drop_alert_always = QCheckBox("Prévenir dès la première image perdue (sinon à partir de 10)")
-        self.drop_alert_always.setChecked(bool(manager.settings.get("drop_alert_always", False)))
-        self.drop_alert_always.setToolTip("Quelques images perdues au démarrage d'OBS sont courantes et ne se voient "
-                                          "pas. Le total reste affiché en petit sur la carte (« perdues N »).")
-        gl.addWidget(self.drop_alert_always)
-        general.addWidget(g)
-
-        g = QGroupBox("Performances")
-        gl = QVBoxLayout(g)
-        self.obs_priority = QCheckBox("Donner la priorité aux OBS sur les jeux (conseillé)")
-        self.obs_priority.setChecked(bool(manager.settings.get("obs_priority", True)))
-        self.obs_priority.setToolTip("Quand un jeu sature le processeur, l'encodeur d'OBS décroche et répète des "
-                                     "images (saccades dans le rec).\nAvec cette option, les OBS passent en priorité "
-                                     "« au-dessus de la normale » : 0 à 0,1 % d'images perdues dans nos tests,\n"
-                                     "contre 9 à 14 % sans. Un autre choix fait dans OBS (Paramètres → Avancé) "
-                                     "est respecté.")
-        gl.addWidget(self.obs_priority)
-        general.addWidget(g)
-
         from .. import APP_VERSION
         g = QGroupBox("Mises à jour")
         row = QHBoxLayout(g)
@@ -258,6 +273,67 @@ class SettingsDialog(QDialog):
         row.addWidget(b)
         general.addWidget(g)
         general.addStretch(1)
+
+        # ---- SafeGuard : surveillance des recs et des lives, alertes, stabilité des OBS
+        # Deux lignes fixes : un texte à la ligne automatique fausse la hauteur de la page (onglets).
+        intro = QLabel("SafeGuard surveille tes OBS pendant les recs et les lives, et te prévient au moindre souci.\n"
+                       "Les problèmes graves (rec bloqué, OBS fermé, micro perdu…) ont toujours le bandeau rouge.")
+        intro.setProperty("muted", True)
+        safe.addWidget(intro)
+
+        g = QGroupBox("Quand prévenir")
+        grid = QGridLayout(g)
+        grid.setHorizontalSpacing(16)
+        grid.setVerticalSpacing(2)
+        self.silence = StepSlider(SILENCE_CHOICES, int(manager.settings.get("silence_warn_s", 120)),
+                                  lambda v: duration_text(v) if v else "Jamais")
+        self.drop_warn = StepSlider(DROP_WARN_CHOICES, int(manager.settings.get("drop_warn_frames", 10)),
+                                    lambda v: f"{v} image" if v == 1 else f"{v} images")
+        self.low_disk = StepSlider(LOW_DISK_CHOICES, int(manager.settings.get("low_disk_gb", 10)),
+                                   lambda v: f"{v} Go")
+        for row, (label, slider, hint) in enumerate((
+                ("Silence", self.silence, "« Pas de son » sur la carte après ce temps sans aucun son pendant un rec"),
+                ("Images perdues", self.drop_warn, "Avertissement sur la carte ; l'alerte rouge part toujours dès "
+                                                   "6 images en 10 s"),
+                ("Disque presque plein", self.low_disk, "Alerte rouge pendant un rec quand il reste moins que ça "
+                                                        "sur le disque"))):
+            grid.addWidget(QLabel(label), 2 * row, 0)
+            grid.addWidget(slider, 2 * row, 1)
+            note = QLabel(hint)
+            note.setProperty("muted", True)
+            note.setContentsMargins(0, 0, 0, 10 if row < 2 else 0)
+            grid.addWidget(note, 2 * row + 1, 1)
+        grid.setColumnStretch(1, 1)
+        safe.addWidget(g)
+
+        g = QGroupBox("Où prévenir")
+        gl = QVBoxLayout(g)
+        self.alert_taskbar = QCheckBox("Faire clignoter Multi OBS dans la barre des tâches")
+        self.alert_taskbar.setChecked(bool(manager.settings.get("alert_taskbar", True)))
+        self.alert_streamdeck = QCheckBox("Stream Deck : cadre rouge et « ALERTE » sur les touches de l'OBS concerné")
+        self.alert_streamdeck.setChecked(bool(manager.settings.get("alert_streamdeck", True)))
+        gl.addWidget(self.alert_taskbar)
+        gl.addWidget(self.alert_streamdeck)
+        safe.addWidget(g)
+
+        g = QGroupBox("Stabilité des OBS")
+        gl = QVBoxLayout(g)
+        self.obs_priority = QCheckBox("Donner la priorité aux OBS sur les jeux (conseillé)")
+        self.obs_priority.setChecked(bool(manager.settings.get("obs_priority", True)))
+        self.obs_priority.setToolTip("Quand un jeu sature le processeur, l'encodeur d'OBS décroche et répète des "
+                                     "images (saccades dans le rec).\nAvec cette option, les OBS passent en priorité "
+                                     "« au-dessus de la normale » : 0 à 0,1 % d'images perdues dans nos tests,\n"
+                                     "contre 9 à 14 % sans. Un autre choix fait dans OBS (Paramètres → Avancé) "
+                                     "est respecté.")
+        self.obs_unthrottle = QCheckBox("Empêcher Windows de ralentir les OBS en arrière-plan (conseillé)")
+        self.obs_unthrottle.setChecked(bool(manager.settings.get("obs_unthrottle", True)))
+        self.obs_unthrottle.setToolTip("Windows 11 bride les programmes réduits ou en arrière-plan : OBS rendait "
+                                       "alors chaque image jusqu'à 15 ms en retard\n(petites saccades dans le rec). "
+                                       "Débridés, les OBS restent à moins de 2 ms.")
+        gl.addWidget(self.obs_priority)
+        gl.addWidget(self.obs_unthrottle)
+        safe.addWidget(g)
+        safe.addStretch(1)
 
         # ---- Enregistrements : nom des fichiers, conversion, types
         g = QGroupBox("Fichiers")
@@ -642,10 +718,16 @@ class SettingsDialog(QDialog):
         s["on_close"] = self.on_close.currentData()
         s["check_updates"] = self.check_updates.isChecked()
         s["trash_mkv_after_remux"] = self.trash_mkv.isChecked()
-        s["drop_alert_always"] = self.drop_alert_always.isChecked()
+        s["silence_warn_s"] = self.silence.value()
+        s["drop_warn_frames"] = self.drop_warn.value()
+        s["low_disk_gb"] = self.low_disk.value()
+        s["alert_taskbar"] = self.alert_taskbar.isChecked()
+        s["alert_streamdeck"] = self.alert_streamdeck.isChecked()
         s["obs_priority"] = self.obs_priority.isChecked()
+        s["obs_unthrottle"] = self.obs_unthrottle.isChecked()
         for c in self.manager.controllers.values():
             c.apply_priority()
+            c.apply_throttle()
         self._save_types()
         self.manager.set_naming(template=self.template.text().strip())  # enregistre + applique
         self.hotkeysChanged.emit()

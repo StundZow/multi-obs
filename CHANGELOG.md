@@ -3,6 +3,21 @@
 Chaque version publiée avec `python release.py X.Y.Z` reprend la section correspondante :
 c'est ce texte que Multi OBS affiche quand il propose la mise à jour.
 
+## 1.1.1
+
+- **Nouvel onglet SafeGuard** dans les paramètres (⚙) : tout ce qui surveille tes recs et tes lives au
+  même endroit.
+  - **Silence** : « Pas de son » n'apparaît plus qu'après **2 minutes** sans aucun son (avant : 10 s),
+    réglable de 10 s à 10 min, ou jamais. Le silence n'est compté que pendant le rec : ni avant, ni
+    pendant une pause.
+  - **Images perdues** : avertissement à partir du nombre d'images que tu choisis (10 par défaut).
+    Une rafale (6 images en 10 s) donne toujours l'alerte rouge.
+  - **Disque presque plein** : seuil de l'alerte, de 2 à 100 Go (10 par défaut).
+  - **Où prévenir** : faire clignoter Multi OBS dans la barre des tâches, alerte rouge sur le Stream
+    Deck (les deux activés par défaut). Le bandeau rouge reste toujours affiché.
+  - **Stabilité des OBS** : priorité des OBS sur les jeux, et OBS jamais ralentis par Windows en
+    arrière-plan (les deux conseillés, activés par défaut).
+
 ## 1.1.0
 
 - **Départ et arrêt des recs à l'image près** : avec « Tout enregistrer », les fichiers commencent

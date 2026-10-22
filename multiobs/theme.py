@@ -143,6 +143,16 @@ QScrollBar::add-page, QScrollBar::sub-page {{ background: none; }}
 QGroupBox {{ border: 1px solid {y['grey5']}; border-radius: 6px; margin-top: 14px; padding: 10px 8px 8px 8px; }}
 QGroupBox::title {{ subcontrol-origin: margin; left: 10px; padding: 0 4px; color: {y['white5']}; }}
 
+QSlider {{ min-height: 22px; }}
+QSlider::groove:horizontal {{ height: 6px; background: {y['grey4']}; border-radius: 3px; }}
+QSlider::sub-page:horizontal {{ background: {y['blue2']}; border-radius: 3px; }}
+QSlider::handle:horizontal {{ background: {y['white1']}; border: 3px solid {y['blue2']}; width: 12px; height: 12px;
+                             margin: -6px 0; border-radius: 9px; }}
+QSlider::handle:horizontal:hover {{ border-color: {y['blue1']}; }}
+QSlider::sub-page:horizontal:disabled {{ background: {y['grey2']}; }}
+QSlider::handle:horizontal:disabled {{ background: {y['grey1']}; border-color: {y['grey2']}; }}
+QLabel#sliderValue {{ font-weight: 700; min-width: 74px; }}
+
 QProgressBar {{ background: {y['grey4']}; border: none; border-radius: 4px; text-align: center; min-height: 16px; }}
 QTextBrowser, QTextEdit, QPlainTextEdit, QListWidget {{
     background: {y['grey8']}; border: 1px solid {y['grey5']}; border-radius: 4px; padding: 6px;

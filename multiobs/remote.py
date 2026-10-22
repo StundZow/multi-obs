@@ -227,6 +227,7 @@ class RemoteServer(QObject):
     def state(self) -> dict:
         m = self.manager
         names = m.vcam_names()
+        deck_alerts = bool(m.settings.get("alert_streamdeck", True))   # SafeGuard
         insts = []
         for inst in m.instances:
             c = m.controller(inst.id)
@@ -244,7 +245,7 @@ class RemoteServer(QObject):
                 "pauseBlocked": c.pause_blocked,
                 "remux": None if remux is None else int(remux * 100),
                 "alert": warnings[0] if warnings else "",
-                "critical": bool(c.critical()),   # problème grave : alerte rouge sur les touches
+                "critical": deck_alerts and bool(c.critical()),   # problème grave : alerte rouge sur les touches
                 "scene": c.scene if c.connected else "",
                 "mutes": dict(c.mutes),
                 "watch": {SEP.join(k): v for k, v in c.watched.items()},

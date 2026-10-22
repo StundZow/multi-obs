@@ -199,7 +199,8 @@ class MainWindow(QMainWindow):
         """Nouveau problème grave : bandeau, barre d'état et bouton de la barre des tâches qui clignote."""
         self.statusBar().showMessage("⚠ " + message, 20000)
         self._refresh_alerts()
-        QApplication.alert(self, 0)   # clignote jusqu'à ce que Multi OBS soit ouvert
+        if self.manager.settings.get("alert_taskbar", True):
+            QApplication.alert(self, 0)   # clignote jusqu'à ce que Multi OBS soit ouvert
 
     def _build_naming_bar(self) -> QFrame:
         bar = QFrame(objectName="namingBar")

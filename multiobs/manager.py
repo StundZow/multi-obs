@@ -36,8 +36,14 @@ DEFAULT_SETTINGS = {
     "auto_remux": True,
     "trash_mkv_after_remux": False,
     "remote_enabled": True,             # pilotage par le plugin Stream Deck (serveur local, 127.0.0.1)
-    "drop_alert_always": False,         # alerte « images perdues » dès la 1re (sinon à partir de 10)
+    # SafeGuard (onglet des paramètres) : surveillance des recs et des lives
+    "silence_warn_s": 120,              # « Pas de son » après ce silence (0 : jamais)
+    "drop_warn_frames": 10,             # avertissement « images perdues » à partir de ce total
+    "low_disk_gb": 10,                  # alerte « disque presque plein » sous ce nombre de Go
+    "alert_taskbar": True,              # bouton de Multi OBS qui clignote dans la barre des tâches
+    "alert_streamdeck": True,           # cadre rouge et « ALERTE » sur les touches du Stream Deck
     "obs_priority": True,               # OBS en priorité « au-dessus de la normale » (rec d'un jeu)
+    "obs_unthrottle": True,             # Windows ne bride pas les OBS réduits ou en arrière-plan
 }
 
 
@@ -84,6 +90,8 @@ class Manager(QObject):
         migrate = data.get("settings_version", 1) < SETTINGS_VERSION
         if migrate:
             _migrate_v1(saved)
+        if "drop_alert_always" in saved:   # case « dès la première image perdue » (1.1.0) → seuil SafeGuard
+            saved.setdefault("drop_warn_frames", 1 if saved.pop("drop_alert_always") else 10)
         self.settings.update(saved)
         self.instances = [InstanceDef.from_dict(d) for d in data.get("instances") or []]
         if migrate:
