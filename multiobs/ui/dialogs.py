@@ -226,6 +226,27 @@ class SettingsDialog(QDialog):
         form.addRow(self.taskbar_rename)
         general.addWidget(g)
 
+        g = QGroupBox("Alertes")
+        gl = QVBoxLayout(g)
+        self.drop_alert_always = QCheckBox("Prévenir dès la première image perdue (sinon à partir de 10)")
+        self.drop_alert_always.setChecked(bool(manager.settings.get("drop_alert_always", False)))
+        self.drop_alert_always.setToolTip("Quelques images perdues au démarrage d'OBS sont courantes et ne se voient "
+                                          "pas. Le total reste affiché en petit sur la carte (« perdues N »).")
+        gl.addWidget(self.drop_alert_always)
+        general.addWidget(g)
+
+        g = QGroupBox("Performances")
+        gl = QVBoxLayout(g)
+        self.obs_priority = QCheckBox("Donner la priorité aux OBS sur les jeux (conseillé)")
+        self.obs_priority.setChecked(bool(manager.settings.get("obs_priority", True)))
+        self.obs_priority.setToolTip("Quand un jeu sature le processeur, l'encodeur d'OBS décroche et répète des "
+                                     "images (saccades dans le rec).\nAvec cette option, les OBS passent en priorité "
+                                     "« au-dessus de la normale » : 0 à 0,1 % d'images perdues dans nos tests,\n"
+                                     "contre 9 à 14 % sans. Un autre choix fait dans OBS (Paramètres → Avancé) "
+                                     "est respecté.")
+        gl.addWidget(self.obs_priority)
+        general.addWidget(g)
+
         from .. import APP_VERSION
         g = QGroupBox("Mises à jour")
         row = QHBoxLayout(g)
@@ -621,6 +642,10 @@ class SettingsDialog(QDialog):
         s["on_close"] = self.on_close.currentData()
         s["check_updates"] = self.check_updates.isChecked()
         s["trash_mkv_after_remux"] = self.trash_mkv.isChecked()
+        s["drop_alert_always"] = self.drop_alert_always.isChecked()
+        s["obs_priority"] = self.obs_priority.isChecked()
+        for c in self.manager.controllers.values():
+            c.apply_priority()
         self._save_types()
         self.manager.set_naming(template=self.template.text().strip())  # enregistre + applique
         self.hotkeysChanged.emit()

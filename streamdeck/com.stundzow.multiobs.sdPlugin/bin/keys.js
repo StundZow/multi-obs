@@ -18,6 +18,7 @@
     vcam: "#0a8dd0",
     blue: "#476bd7",
     alert: "#ffcc33",
+    critical: "#ff2a2a",
     message: "#3a1118",
     grey: ["#6b7080", "#5b6273", "#4e5566", "#3c404d", "#2d3039", "#22242b"],
   };
@@ -183,9 +184,9 @@
         : nameLines(b.name || "?", 72, 17, 34, 27, 17, width, b.dim ? "#d6d8de" : C.ink));
     }
     out.push(`<rect x="0" y="${BAND}" width="144" height="2" fill="#000000" fill-opacity="0.4"/>`);
-    if (m.alert) {
-      out.push(`<path d="M13 8 L25 31 H1 Z" fill="${C.alert}" stroke="#1a1a1a" stroke-width="1.5" stroke-linejoin="round"/>`);
-      out.push(text("!", 13, 29, 16, "#1a1a1a"));
+    if (m.alert || m.critical) {
+      out.push(`<path d="M13 8 L25 31 H1 Z" fill="${m.critical ? C.critical : C.alert}" stroke="#1a1a1a" stroke-width="1.5" stroke-linejoin="round"/>`);
+      out.push(text("!", 13, 29, 16, m.critical ? "#ffffff" : "#1a1a1a"));
     }
     if (m.recDot) {
       // Pastille REC (blanc + rouge : visible même sur un bandeau rouge), elle clignote.
@@ -346,6 +347,10 @@
   function render(m) {
     let content;
     if (m.message) content = lines(C.message, m.message[0], m.message[1], "#ffffff");
+    else if (m.alertFlash && m.press == null) {
+      // Problème grave : une seconde sur deux, la touche crie « ALERTE » (voir le bandeau de Multi OBS).
+      content = body("#16070a") + text("ALERTE", 72, 92, 30, C.critical) + text("VOIR MULTI OBS", 72, 121, 15, "#ffffff");
+    }
     else if (m.phase === "offline" || m.phase === "launching" || m.phase === "nofile") content = offlineBody(m);
     else if (m.phase === "unset") content = lines(C.off, "CHOISIS", "UN OBS", C.soft);
     else if (m.phase === "missing") content = lines(C.off, "OBS", "INTROUVABLE", C.muted);
@@ -354,8 +359,10 @@
       if (m.fired) content = inverted(content);   // appui long parti : toute la touche en négatif
       else if (m.press != null) content += holdLayer(content, m.press);
     }
+    // Problème grave (rec bloqué, OBS fermé, son en panne…) : cadre rouge autour de la touche.
+    const frame = m.critical ? `<rect x="3" y="3" width="138" height="138" rx="9" fill="none" stroke="${C.critical}" stroke-width="6"/>` : "";
     return `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144">`
-      + `<rect width="144" height="144" fill="${C.off}"/>${band(m)}${content}</svg>`;
+      + `<rect width="144" height="144" fill="${C.off}"/>${band(m)}${content}${frame}</svg>`;
   }
 
   const api = { render, glyph, formatTime, COLORS: C };

@@ -381,6 +381,10 @@ class InstanceCard(QFrame):
         warns = c.warnings()
         self.warning.setVisible(bool(warns))
         self.warning.setText("⚠ " + "   ⚠ ".join(warns))
+        critical = bool(c.critical())   # problème grave : en rouge
+        if self.warning.property("critical") != critical:
+            self.warning.setProperty("critical", critical)
+            _restyle(self.warning)
 
     def _refresh_meters(self) -> None:
         c = self.ctrl
@@ -444,3 +448,7 @@ class MiniChip(QFrame):
         warns = c.warnings()
         self.alert.setVisible(bool(warns))
         self.alert.setToolTip("\n".join(warns))
+        critical = bool(c.critical())
+        if self.alert.property("critical") != critical:
+            self.alert.setProperty("critical", critical)
+            _restyle(self.alert)

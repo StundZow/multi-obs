@@ -581,6 +581,8 @@ function model(a) {
   m.blink = Math.floor(m.recMs / 1000) % 2 === 0;
   m.remux = e.remux;
   m.alert = !!e.alert;
+  m.critical = !!e.critical;
+  m.alertFlash = m.critical && Math.floor(Date.now() / 1000) % 2 === 1;   // une seconde sur deux : « ALERTE »
   if (all) {
     const st = link.state.all;
     if (a.kind === "power") {
@@ -628,7 +630,7 @@ let ticker = null;
 let ticks = 0;
 function busy() {
   const st = link.state;
-  if (st && (st.all.recording || st.instances.some((i) => i.recording || i.streaming))) return true;
+  if (st && (st.all.recording || st.instances.some((i) => i.recording || i.streaming || i.critical))) return true;
   for (const a of actions.values()) if (a.press || a.message) return true;
   return false;
 }

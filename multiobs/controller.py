@@ -10,7 +10,8 @@ import psutil
 from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtGui import QImage
 
-from . import obsfiles, taskbar, winapi
+from . import applog, health, obsfiles, taskbar, winapi
+from .framesync import sync_usable
 from .instance_config import InstanceDef, record_directory
 from .obsws import ObsWs
 from .preview import PreviewChannel
@@ -21,8 +22,20 @@ SILENCE_DB = -50.0
 SILENCE_SECONDS = 10
 # OBS ignore une pause demandée juste après une reprise (tout en répondant « OK ») : on attend un peu.
 RESUME_GUARD_S = 0.3
+# Quelques images perdues au démarrage d'OBS sont courantes : pas d'alerte avant 10 au total (sauf réglage).
+DROP_ALERT_MIN = 10
+# Alerte grave (bandeau, Stream Deck) : au moins 6 images perdues en 10 s.
+DROP_BURST_FRAMES, DROP_BURST_S = 6, 10
 METER_FLOOR_DB = -60.0
 LOW_DISK_BYTES = 10 * 1024 ** 3
+# Rec (hors pause) dont le fichier ne grossit plus pendant 10 s : bloqué (encodeur, son ou disque en panne).
+# Pas moins : sous très forte charge, l'encodeur peut avoir plusieurs secondes de retard après une reprise.
+STALL_S = 10
+# Après « rec arrêté », OBS ferme encore l'encodeur quelques instants (il se dit toujours actif).
+STOP_SETTLE_S = 4
+# Images manquantes : verdict seulement sur des images rendues au moins 1 s après le départ / la reprise.
+SKIP_SETTLE_NS = 1_000_000_000
+SYNC_STATUS = {"vendorName": "multiobs-sync", "requestType": "status"}
 
 
 def _db(mul: float) -> float:
@@ -39,6 +52,7 @@ class InstanceController(QObject):
     meters = Signal()
     defaultAudioAdded = Signal(str)
     actionFailed = Signal(str)
+    alertRaised = Signal(str)     # nouveau problème grave (rec bloqué, OBS fermé, son en panne…)
     obsReady = Signal(str)
     previewFps = Signal(float)
 
@@ -67,6 +81,11 @@ class InstanceController(QObject):
         # Ce que les touches du Stream Deck affichent : (« filter », source, filtre), (« item », scène,
         # source), (« mute », entrée, "") ; suivi par les événements d'OBS.
         self._watch_wanted: set[tuple[str, str, str]] = set()
+        # Problèmes graves en cours : clé → (message, fin ; 0 = tant que le problème dure). Gardés quand
+        # OBS se ferme (« OBS s'est fermé pendant le rec » doit rester affiché).
+        self.alerts: dict[str, tuple[str, float]] = {}
+        self._expected_exit = False
+        self.logwatch = health.LogWatcher(inst.config_dir / "logs")
         self.actionFailed.connect(self._remember_failure)
         self._reset_state()
         self._refresh_disk()
@@ -123,6 +142,18 @@ class InstanceController(QObject):
         self._last_sound = time.monotonic()
         self._drop_warning_until = 0.0
         self._drop_warning = ""
+        self._drops_recent: list[tuple[float, int]] = []   # images perdues récemment : (heure, nombre)
+        self._bytes_seen = (-1, time.monotonic())   # taille du rec au dernier changement, et quand
+        self._stopped_at = 0.0
+        self._stop_settled = True                    # OBS a fini de fermer le rec précédent
+        self._stop_asked = 0.0                       # arrêt du rec demandé (et pas encore fini)
+        self._start_asked = 0.0                      # départ du rec demandé (et pas encore vu)
+        self._rec_event_at = 0.0                     # dernier changement d'état du rec annoncé par OBS
+        self._sync_origin = None                     # origine du fichier d'après le module (images sautées)
+        self._sync_gen = None
+        self._skipped = 0
+        self._resumed_qpc = 0                        # dernier départ / dernière reprise, horloge d'OBS (ns)
+        self._priority_raised = False
         self.closing = False
         self.obs_ready = False
 
@@ -161,20 +192,107 @@ class InstanceController(QObject):
             return 0.0
         return max(0.0, (s[-1][1] - s[0][1]) / (s[-1][0] - s[0][0]))
 
+    # ------------------------------------------------------------------ #
+    # Alertes graves (bandeau rouge, barre des tâches, Stream Deck)
+    # ------------------------------------------------------------------ #
+    def _raise(self, key: str, message: str, ttl: float = 0) -> None:
+        """Problème grave : annoncé une fois (alertRaised), affiché tant qu'il dure (ttl = 0) ou ttl s."""
+        new = key not in self.alerts
+        self.alerts[key] = (message, time.monotonic() + ttl if ttl else 0.0)
+        if new:
+            applog.log(f"ALERTE {self.inst.name} : {message}")
+            self.alertRaised.emit(f"{self.inst.name} : {message}")
+
+    def _clear(self, key: str) -> None:
+        self.alerts.pop(key, None)
+
+    def critical(self) -> list[str]:
+        now = time.monotonic()
+        for key in [k for k, (_m, end) in self.alerts.items() if end and now > end]:
+            del self.alerts[key]
+        return [m for m, _end in self.alerts.values()]
+
+    def _check_health(self) -> None:
+        now = time.monotonic()
+        rec = self.connected and self.recording
+        if self.proc:
+            for message in self.logwatch.poll():   # ce qu'OBS écrit dans son journal
+                if rec or self.streaming:
+                    self._raise("log:" + message, message, 120)
+                else:
+                    applog.log(f"{self.inst.name} (journal d'OBS) : {message}")
+        # Le fichier ne grossit plus alors que le rec n'est pas en pause : OBS n'écrit plus rien. (Pendant
+        # un arrêt, c'est normal : « l'arrêt ne se termine pas » prend le relais.)
+        if rec and not self.paused and not self._stop_asked:
+            if self.rec_bytes != self._bytes_seen[0]:
+                if "stall" in self.alerts:
+                    self._raise("stall_end", f"Le rec a été bloqué {int(now - self._bytes_seen[1])} s puis est reparti",
+                                300)
+                    self._clear("stall")
+                self._bytes_seen = (self.rec_bytes, now)
+            elif now - self._bytes_seen[1] >= STALL_S:
+                self._raise("stall", f"REC BLOQUÉ : plus rien n'est écrit depuis {int(now - self._bytes_seen[1])} s "
+                                     "(arrête et relance le rec de cet OBS)")
+        else:
+            self._bytes_seen = (-1, now)
+            self._clear("stall")
+        # Rec demandé (et redemandé) mais jamais commencé : le dire fort, on croirait enregistrer.
+        if self._start_asked and not self.recording and now - self._start_asked > 12:
+            self._start_asked = 0.0
+            self._raise("nostart", "Le rec n'a pas démarré : relance-le", 60)
+        # OBS bloqué ne peut plus finir son fichier : l'arrêt attend une image qui ne vient jamais.
+        if rec and self._stop_asked and now - self._stop_asked > 15:
+            self._raise("stopstuck", "L'arrêt du rec ne se termine pas (OBS bloqué) : ferme cet OBS, le fichier "
+                                     "déjà écrit est gardé")
+        elif not rec:
+            self._stop_asked = 0.0
+            self._clear("stopstuck")
+        if self.obs_dialogs and (rec or self.streaming or now - self._stopped_at < 30):
+            self._raise("dialog", f"OBS affiche une erreur : « {self.obs_dialogs[0]} » — clique « Voir OBS »")
+        else:
+            self._clear("dialog")
+        if self.disk_total and self.disk_free < LOW_DISK_BYTES and (rec or self.streaming):
+            self._raise("disk", f"Disque presque plein ({self.disk_free / 1024 ** 3:.1f} Go libres)")
+        else:
+            self._clear("disk")
+        if rec and self._disk_tick % 2 == 0:
+            self.ws.call("CallVendorRequest", SYNC_STATUS, self._on_sync_status)
+
+    def _on_sync_status(self, ok: bool, d: dict, _s: dict) -> None:
+        """Module multiobs-sync : l'origine du fichier ne bouge qu'avec une pause. Si elle avance sans
+        pause, des images manquent au fichier : ce rec se décale par rapport aux autres."""
+        data = (d.get("responseData") or {}) if ok else {}
+        if not (sync_usable(data) and data.get("active") and data.get("frames") and data.get("frame_ns")):
+            self._sync_origin = None
+            return
+        # Juger seulement sur des images rendues bien après le dernier départ / la dernière reprise : sous
+        # forte charge, l'encodeur peut avoir plusieurs secondes de retard (même horloge qu'OBS : QPC).
+        settled = not self.paused and data.get("last_cts", 0) > self._resumed_qpc + SKIP_SETTLE_NS
+        prev, self._sync_origin = self._sync_origin, data["origin"]
+        if not settled:
+            self._sync_origin = None
+            return
+        if prev is None or data.get("gen") != self._sync_gen:
+            self._sync_gen = data.get("gen")
+            return
+        skipped = round((data["origin"] - prev) / data["frame_ns"])
+        if skipped >= 1:
+            self._skipped += skipped
+            self._raise("skip", f"Vidéo : {self._skipped} image(s) sautée(s) à l'encodage, ce rec est décalé "
+                                "d'autant par rapport aux autres", 300)
+
     def warnings(self) -> list[str]:
-        out = []
+        out = self.critical()
         if not self.connected:
             return out
         now = time.monotonic()
-        if self.obs_dialogs:
+        if self.obs_dialogs and "dialog" not in self.alerts:
             out.append(f"OBS attend une réponse : « {self.obs_dialogs[0]} » — clique « Voir OBS »")
         if self.pause_blocked and self.recording:
             out.append("Pause impossible avec la qualité « Identique au stream » (clic sur Pause pour corriger)")
         if now < self._failure_until:
             out.append(self._failure)
-        if self.disk_total and self.disk_free < LOW_DISK_BYTES and (self.recording or self.streaming):
-            out.append("Disque presque plein")
-        if now < self._drop_warning_until and self._drop_warning:
+        if now < self._drop_warning_until and self._drop_warning and "drops" not in self.alerts:
             out.append(self._drop_warning)
         active = (self.recording and not self.paused) or self.streaming
         if active:
@@ -196,6 +314,7 @@ class InstanceController(QObject):
                 if p.info["name"] and p.info["name"].lower() == "obs64.exe" and p.info["exe"] \
                         and _same_path(p.info["exe"], exe):
                     self.proc = p
+                    winapi.unthrottle(p.pid)
                     self.ws.open()
                     self.preview_channel.activate(self.inst.port, self.inst.password)
                     return
@@ -212,6 +331,9 @@ class InstanceController(QObject):
         p = subprocess.Popen([str(exe), *LAUNCH_ARGS], cwd=str(exe.parent), close_fds=True, env=env,
                              creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
         self.proc = psutil.Process(p.pid)
+        winapi.unthrottle(p.pid)
+        self._expected_exit = False
+        self._clear("crash")
         self._reset_state()
         self._want_minimize = self.inst.start_minimized
         self._launch_started = time.monotonic()
@@ -268,6 +390,7 @@ class InstanceController(QObject):
 
     def kill(self) -> None:
         if self.proc:
+            self._expected_exit = True
             try:
                 self.proc.kill()
             except psutil.Error:
@@ -299,6 +422,8 @@ class InstanceController(QObject):
             self._launch_timer.stop()
 
     def _on_exit(self) -> None:
+        if (self.recording or self.streaming) and not self.closing and not self._expected_exit:
+            self._raise("crash", "OBS s'est fermé pendant le " + ("rec !" if self.recording else "live !"), 3600)
         self.proc = None
         self._close_after_stop = False
         self._hwnd = None
@@ -413,7 +538,7 @@ class InstanceController(QObject):
                 self.ws.open()
         if self.connected:
             self.ws.call("GetStats", cb=self._on_stats)
-            self.ws.call("GetRecordStatus", cb=self._on_record_status)
+            self._poll_record_status()
             self.ws.call("GetStreamStatus", cb=self._on_stream_status)
             self._decorate_window()
         if self.proc and self._disk_tick % 2 == 0:
@@ -423,6 +548,7 @@ class InstanceController(QObject):
                 self.obs_dialogs = []
         elif not self.proc:
             self.obs_dialogs = []
+        self._check_health()
         self.changed.emit()
 
     def _on_identified(self) -> None:
@@ -438,7 +564,26 @@ class InstanceController(QObject):
             self._on_obs_ready()
         self.ws.call("GetCurrentProgramScene", cb=cb)
 
+    def apply_priority(self) -> None:
+        """Rec d'un jeu : OBS passe devant le jeu quand le processeur sature (sinon son encodeur décroche
+        et répète des images). Seulement depuis la priorité normale (celle d'OBS par défaut) : un autre
+        choix fait dans OBS est respecté."""
+        if not self.proc:
+            return
+        want = bool(self.settings.get("obs_priority", True))
+        try:
+            current = self.proc.nice()
+            if want and current == psutil.NORMAL_PRIORITY_CLASS:
+                self.proc.nice(psutil.ABOVE_NORMAL_PRIORITY_CLASS)
+                self._priority_raised = True
+            elif not want and self._priority_raised and current == psutil.ABOVE_NORMAL_PRIORITY_CLASS:
+                self.proc.nice(psutil.NORMAL_PRIORITY_CLASS)
+                self._priority_raised = False
+        except psutil.Error:
+            pass
+
     def _on_obs_ready(self) -> None:
+        self.apply_priority()   # OBS a déjà appliqué sa propre priorité à ce stade
         self._refresh_record_dir()
         self._check_pause_support()
         self.obsReady.emit(self.inst.id)
@@ -446,7 +591,7 @@ class InstanceController(QObject):
         if self.inst.needs_default_audio and self.scene:
             self._add_default_audio()
         self.ws.call("GetVirtualCamStatus", cb=self._on_vcam_status)
-        self.ws.call("GetRecordStatus", cb=self._on_record_status)
+        self._poll_record_status()
         self.ws.call("GetStreamStatus", cb=self._on_stream_status)
         self._requery_watches()
         self.changed.emit()
@@ -524,22 +669,41 @@ class InstanceController(QObject):
         self.cpu = d.get("cpuUsage", 0.0)
         self.memory = d.get("memoryUsage", 0.0)
         rs, os_ = d.get("renderSkippedFrames", 0) or 0, d.get("outputSkippedFrames", 0) or 0
-        dropped = False
-        if self._stats_seen and rs > self.render_skipped:
-            self._drop_warning = f"Images perdues au rendu (+{rs - self.render_skipped})"
-            self._drop_warning_until = time.monotonic() + 8
-            dropped = True
-        if self._stats_seen and os_ > self.output_skipped:
-            self._drop_warning = f"Images perdues à l'encodage (+{os_ - self.output_skipped})"
-            self._drop_warning_until = time.monotonic() + 8
-            dropped = True
-        if dropped:
+        new_render = self._stats_seen and rs > self.render_skipped
+        new_output = self._stats_seen and os_ > self.output_skipped
+        if new_render or new_output:
+            now = time.monotonic()
+            if rs + os_ >= (1 if self.settings.get("drop_alert_always") else DROP_ALERT_MIN):
+                self._drop_warning = (f"Images perdues à l'encodage (+{os_ - self.output_skipped})" if new_output
+                                      else f"Images perdues au rendu (+{rs - self.render_skipped})")
+                self._drop_warning_until = now + 8
+            # Alerte grave seulement pour de vraies saccades (≥ 6 images en 10 s, 1 % à 60 i/s) ; une image
+            # perdue de temps en temps ne se voit pas : avertissement simple sur la carte.
+            self._drops_recent = [(t, n) for t, n in self._drops_recent if now - t < DROP_BURST_S]
+            # Une image ratée au rendu est aussi répétée à l'encodage : comptée une seule fois.
+            self._drops_recent.append((now, max(rs - self.render_skipped, os_ - self.output_skipped)))
+            burst = sum(n for _t, n in self._drops_recent)
+            if burst >= DROP_BURST_FRAMES and (self.recording or self.streaming):
+                kind = "à l'encodage" if new_output else "au rendu"
+                self._raise("drops", f"Vidéo : {burst} images perdues {kind} en {DROP_BURST_S} s, saccades dans le rec",
+                            20)
             # OBS est chargé : l'aperçu se fait discret pour protéger l'enregistrement.
             self.preview_channel.throttle()
         self.render_skipped, self.output_skipped = rs, os_
         self._stats_seen = True
 
-    def _on_record_status(self, ok: bool, d: dict, _s: dict) -> None:
+    def _poll_record_status(self) -> None:
+        sent = time.perf_counter()
+        self.ws.call("GetRecordStatus", cb=lambda ok, d, s: self._on_record_status(ok, d, s, sent))
+
+    def _on_record_status(self, ok: bool, d: dict, _s: dict, sent: float = 0.0) -> None:
+        # Réponse partie avant le dernier changement d'état (rec arrêté juste après la demande…) : périmée.
+        # Et juste après « arrêté », OBS dit encore « actif » le temps de fermer l'encodeur. Sinon un rec
+        # qui vient de s'arrêter paraîtrait encore en cours, et le départ suivant serait ignoré.
+        if ok and not d.get("outputActive"):
+            self._stop_settled = True
+        if ok and (sent < self._rec_event_at or (d.get("outputActive") and self._settling())):
+            return
         if ok:
             self.recording = d.get("outputActive", False)
             self.paused = d.get("outputPaused", False)
@@ -576,25 +740,37 @@ class InstanceController(QObject):
             return
         if etype == "RecordStateChanged":
             state = d.get("outputState", "")
+            self._rec_event_at = time.perf_counter()
             # obs-websocket annonce « outputActive: false » pendant une PAUSE : l'enregistrement
             # continue pourtant. On se fie donc à l'état, pas à ce booléen.
             if state.endswith("PAUSED"):
                 self.rec_ms, self._rec_ms_at = self.rec_elapsed_ms(), time.monotonic()   # timecode figé
                 self.recording, self.paused = True, True
             elif state.endswith(("RESUMED", "STARTED")):
+                self._resumed_qpc = time.perf_counter_ns()   # même horloge que les images d'OBS
                 if state.endswith("STARTED"):
+                    self._stop_asked = 0.0   # rec arrêté puis relancé entre deux relevés
+                    self._start_asked = 0.0
+                    self._clear("nostart")
                     self.rec_ms = 0
+                    self._sync_origin, self._skipped = None, 0
+                    self._clear("skip")
                 else:
                     self.resumed_at = time.monotonic()
                 self._rec_ms_at = time.monotonic()
                 self.recording, self.paused = True, False
+            elif state.endswith("STOPPING"):   # arrêt demandé (Multi OBS, Tout arrêter, fenêtre d'OBS…)
+                self._stop_asked = self._stop_asked or time.monotonic()
             elif state.endswith("STOPPED"):
                 self.recording, self.paused = False, False
+                self._stop_asked = 0.0
             if not self.recording:
                 self.rec_time = ""
             if state.endswith("STARTED") and d.get("outputPath"):
                 self.rec_path = d["outputPath"]
             if state.endswith("STOPPED"):
+                self._stopped_at = time.monotonic()
+                self._stop_settled = False
                 self.rec_path = ""
                 self._watch_remux(d.get("outputPath") or "")
                 self._start_remux_tracking(d.get("outputPath") or "")
@@ -762,11 +938,25 @@ class InstanceController(QObject):
         def cb(ok, _d, status):
             if not ok and self.connected:
                 self.actionFailed.emit(f"{self.inst.name} : {what} impossible ({status.get('comment') or 'erreur OBS'})")
-            QTimer.singleShot(150, lambda: self.connected and self.ws.call("GetRecordStatus", cb=self._on_record_status))
+            QTimer.singleShot(150, lambda: self.connected and self._poll_record_status())
         return cb
 
     def start_record(self, attempt: int = 0):
-        if not (self.connected and not self.recording):
+        # Juste après un arrêt, OBS dit encore « actif » le temps de fermer l'encodeur (et ignorerait
+        # sans rien dire un départ) : on n'en tient pas compte, on attend qu'il ait vraiment fini.
+        just_stopped = self._settling()
+        if not self.connected or (self.recording and not just_stopped):
+            return
+        if attempt == 0:
+            self._start_asked = time.monotonic()
+        if just_stopped:
+            def check(ok, d, _s):
+                if ok and d.get("outputActive") and self._settling():
+                    QTimer.singleShot(200, lambda: self.start_record(attempt))
+                else:
+                    self._stop_settled = True
+                    self.start_record(attempt)
+            self.ws.call("GetRecordStatus", cb=check)
             return
 
         def started(ok, d, status):
@@ -775,12 +965,15 @@ class InstanceController(QObject):
                 QTimer.singleShot(600, lambda: self.start_record(attempt + 1))
                 return
             self._report("démarrer l'enregistrement")(ok, d, status)
+            if ok:   # OBS a dit oui : on vérifie que le rec a vraiment démarré, sinon on redemande
+                QTimer.singleShot(3000, lambda: self._confirm_start(attempt))
 
         def cb(ok, d, _s):
             # Dossier absent (disque débranché…) : OBS ouvrirait une fenêtre d'erreur cachée
             # derrière sa fenêtre réduite. On prévient ici à la place.
             folder = (d.get("recordDirectory") or "") if ok else ""
             if folder and not Path(folder).is_dir():
+                self._start_asked = 0.0   # déjà signalé ici
                 self.actionFailed.emit(f"{self.inst.name} : dossier d'enregistrement introuvable "
                                        f"({folder}). Change-le dans OBS > Paramètres > Sortie.")
                 return
@@ -788,8 +981,18 @@ class InstanceController(QObject):
                 self.ws.call("StartRecord", cb=started)
         self.ws.call("GetRecordDirectory", cb=cb)
 
+    def _settling(self) -> bool:
+        """Rec qui vient de s'arrêter : OBS ferme encore l'encodeur (il se dit toujours actif)."""
+        return not self._stop_settled and time.monotonic() - self._stopped_at < STOP_SETTLE_S
+
+    def _confirm_start(self, attempt: int) -> None:
+        if self._start_asked and self.connected and not self.recording and attempt < 6:
+            applog.log(f"{self.inst.name} : rec pas démarré après « OK » d'OBS, nouvelle demande")
+            self.start_record(attempt + 1)
+
     def stop_record(self):
         if self.connected and self.recording:
+            self._stop_asked = self._stop_asked or time.monotonic()
             self.ws.call("StopRecord", cb=self._report("arrêter l'enregistrement"))
 
     def pause_record(self):

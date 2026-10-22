@@ -162,6 +162,13 @@ QLabel#chip[state="live"] {{ background: {y['red4']}; color: white; }}
 QLabel#chip[state="ready"] {{ background: {y['green3']}; color: white; }}
 QLabel#chip[state="busy"] {{ background: {y['blue4']}; color: white; }}
 QLabel#warning {{ color: {y['yellow2']}; font-size: 9pt; }}
+QLabel#warning[critical="true"] {{ color: white; background: {y['red4']}; border-radius: 4px; padding: 4px 7px;
+                                  font-weight: 600; }}
+QFrame#alertBanner {{ background: {y['red4']}; border-bottom: 2px solid {y['red2']}; }}
+QLabel#alertText {{ color: white; font-size: 10pt; font-weight: 600; }}
+QPushButton#alertHide {{ background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.35); color: white;
+                        padding: 4px 12px; }}
+QPushButton#alertHide:hover {{ background: rgba(0, 0, 0, 0.4); }}
 QLabel#stats {{ color: {y['white5']}; font-size: 8.5pt; }}
 
 QTabWidget::pane {{ border: 1px solid {y['grey5']}; border-radius: 6px; top: -1px; background: {y['grey7']}; }}
@@ -186,6 +193,7 @@ QLabel#miniLabel {{ color: {y['grey1']}; font-size: 8.5pt; }}
 QLabel#miniName {{ font-weight: 600; }}
 QLabel#miniTag {{ color: {y['white4']}; font-size: 8pt; border: 1px solid {y['grey3']}; border-radius: 4px; padding: 0 4px; }}
 QLabel#miniAlert {{ color: {y['yellow2']}; font-weight: 700; }}
+QLabel#miniAlert[critical="true"] {{ color: {y['red1']}; }}
 QToolButton#miniRestore {{ background: transparent; border: none; border-radius: 4px; padding: 3px 7px;
                           color: {y['white4']}; font-weight: 600; }}
 QToolButton#miniRestore:hover {{ background: rgba(255, 255, 255, 0.08); color: {y['white1']}; }}

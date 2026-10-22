@@ -36,6 +36,8 @@ DEFAULT_SETTINGS = {
     "auto_remux": True,
     "trash_mkv_after_remux": False,
     "remote_enabled": True,             # pilotage par le plugin Stream Deck (serveur local, 127.0.0.1)
+    "drop_alert_always": False,         # alerte « images perdues » dès la 1re (sinon à partir de 10)
+    "obs_priority": True,               # OBS en priorité « au-dessus de la normale » (rec d'un jeu)
 }
 
 
@@ -265,6 +267,7 @@ class Manager(QObject):
         for inst in insts:
             if not obsfiles.tree_is_current(inst.dir, inst.vcam):
                 obsfiles.build_tree(inst.dir, inst.vcam, progress)
+            obsfiles.install_sync_plugin(inst.dir)
             ensure_config(inst, (import_from or {}).get(inst.id), self.filename_format(inst),
                           bool(self.settings.get("auto_remux", True)))
         colors = {i.vcam: i.color for i in insts}

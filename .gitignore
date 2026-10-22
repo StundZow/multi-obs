@@ -9,6 +9,9 @@ dist/
 multiobs/assets/multiobs.ico
 build_notes.md
 
+# En-têtes d'OBS et bibliothèques d'import pour compiler le module OBS (obsplugin/build_plugin.py)
+obsplugin/.deps/
+
 # Journal du plugin Stream Deck (quand le dossier est relié au logiciel Stream Deck)
 streamdeck/*.sdPlugin/logs/
 

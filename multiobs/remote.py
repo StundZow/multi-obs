@@ -244,6 +244,7 @@ class RemoteServer(QObject):
                 "pauseBlocked": c.pause_blocked,
                 "remux": None if remux is None else int(remux * 100),
                 "alert": warnings[0] if warnings else "",
+                "critical": bool(c.critical()),   # problème grave : alerte rouge sur les touches
                 "scene": c.scene if c.connected else "",
                 "mutes": dict(c.mutes),
                 "watch": {SEP.join(k): v for k, v in c.watched.items()},
@@ -277,6 +278,7 @@ class RemoteServer(QObject):
             "recMs": max((i["recMs"] for i in targets if i["recording"]), default=0),
             "remux": min(remuxing) if remuxing else None,
             "alert": alerts[0] if alerts else "",
+            "critical": any(i["critical"] for i in insts),   # rec bloqué, OBS fermé… sur n'importe quelle instance
         }
 
     @staticmethod

@@ -3,6 +3,43 @@
 Chaque version publiée avec `python release.py X.Y.Z` reprend la section correspondante :
 c'est ce texte que Multi OBS affiche quand il propose la mise à jour.
 
+## 1.1.0
+
+- **Départ et arrêt des recs à l'image près** : avec « Tout enregistrer », les fichiers commencent
+  maintenant sur la même image (avant : jusqu'à 7 images d'écart, selon l'OBS qui démarrait le plus vite).
+  « Tout arrêter » les finit tous sur la même image : **même nombre d'images dans chaque fichier**, les
+  pistes se calent d'un coup au montage. Un petit module OBS livré avec Multi OBS donne l'heure exacte de
+  la première image de chaque fichier ; juste après le départ, les instances parties en avance font une
+  très courte pause pour s'aligner, puis c'est revérifié. Mesuré image par image sur 65 départs et
+  65 arrêts, avec plusieurs réglages (NVENC HEVC 4K/1440p, NVENC simple, x264, 30 et 60 i/s, son retardé
+  de 0,6 s sur une instance) : tous alignés au mieux (il reste au plus une fraction d'image, car les
+  horloges d'images des OBS ne sont pas en phase).
+  - Après la mise à jour, **éteins puis rallume tes instances** une fois pour charger le module.
+- **Chaque pause resynchronise** : à la reprise, Multi OBS mesure l'écart exact entre les fichiers et le
+  rattrape dans la pause, sans coupure de plus.
+- **Alertes immédiates** quand un rec a un souci : rec bloqué (plus rien n'est écrit), OBS fermé ou planté
+  pendant le rec, arrêt qui ne se termine pas, erreur affichée par OBS, son qui décroche ou micro perdu,
+  encodeur en panne, écriture du fichier impossible, carte graphique perdue, images perdues, disque
+  presque plein, capture de jeu impossible (un seul OBS peut capturer un même jeu : les autres
+  enregistraient du noir sans prévenir ; prends une capture de fenêtre dans les autres instances). Bandeau rouge en haut de Multi OBS, carte en rouge, bouton de la barre des tâches qui
+  clignote, et cadre rouge sur les touches du Stream Deck. Aucun son : rien ne s'entend dans tes recs.
+- **Images plus régulières dans les recs** : Windows 11 bride les programmes réduits ou en arrière-plan ;
+  OBS perdait alors sa minuterie précise et rendait chaque image jusqu'à 15 ms après son heure (petites
+  saccades dans les mouvements). Multi OBS retire ce bridage pour ses OBS : moins de 2 ms.
+- **Les OBS passent devant les jeux** : quand un jeu sature le processeur, l'encodeur d'OBS décrochait et
+  répétait des images (saccades). Les OBS sont maintenant en priorité « au-dessus de la normale ». Dans
+  notre test le plus dur (carte graphique et processeur à 100 % en même temps, 3 OBS dont un en 4K) :
+  12 à 14 % d'images répétées avec des OBS lancés seuls, 0 à 0,1 % avec Multi OBS (une fois 7 % pour
+  l'instance 4K, la plus lourde : l'alerte « images perdues » prévient alors). Réglable dans ⚙ → Général
+  → Performances ; un autre choix fait dans OBS est respecté.
+- **Rec relancé juste après un arrêt** : il pouvait ne pas démarrer, sans rien dire (OBS ferme encore
+  l'encodeur du rec précédent et ignore la demande). Multi OBS attend maintenant qu'OBS ait fini, vérifie
+  que chaque rec démarre vraiment (sinon il redemande, puis alerte). 0 raté sur 100 cycles arrêt / départ
+  enchaînés, contre 3 à 4 avant.
+- L'alerte « Images perdues » n'apparaît plus pour quelques images (souvent au démarrage d'OBS, sans
+  effet visible) : seulement à partir de 10 images perdues au total. Pour être prévenu dès la première :
+  ⚙ → Général → « Prévenir dès la première image perdue ». Le total reste affiché en petit sur la carte.
+
 ## 1.0.8
 
 - **Plugin Stream Deck** : pilote chaque OBS, ou toutes les instances d'un coup, avec des touches

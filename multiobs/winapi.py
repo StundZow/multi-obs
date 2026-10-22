@@ -3,6 +3,10 @@ import ctypes
 from ctypes import wintypes
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
+kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+kernel32.OpenProcess.restype = wintypes.HANDLE
+kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
 
 _EnumProc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 user32.EnumWindows.argtypes = [_EnumProc, wintypes.LPARAM]
@@ -109,6 +113,30 @@ def minimize(hwnd) -> None:
 
 def request_close(hwnd) -> None:
     user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+
+
+class _PowerThrottling(ctypes.Structure):
+    _fields_ = [("Version", wintypes.ULONG), ("ControlMask", wintypes.ULONG), ("StateMask", wintypes.ULONG)]
+
+
+def unthrottle(pid: int) -> bool:
+    """Empêche Windows 11 de brider un OBS en arrière-plan ou réduit. Bridé, il ignore la minuterie
+    de 1 ms qu'OBS demande : chaque image est rendue jusqu'à 15 ms après son heure (saccades dans le
+    rec), et le processeur peut être ralenti (mode « efficacité »)."""
+    PROCESS_SET_INFORMATION, PROCESS_POWER_THROTTLING = 0x0200, 4
+    EXECUTION_SPEED, IGNORE_TIMER_RESOLUTION = 0x1, 0x4
+    handle = kernel32.OpenProcess(PROCESS_SET_INFORMATION, False, pid)
+    if not handle:
+        return False
+    try:
+        # Les deux bits dans ControlMask, aucun dans StateMask : « jamais bridé » pour les deux.
+        state = _PowerThrottling(1, EXECUTION_SPEED | IGNORE_TIMER_RESOLUTION, 0)
+        return bool(kernel32.SetProcessInformation(handle, PROCESS_POWER_THROTTLING, ctypes.byref(state),
+                                                   ctypes.sizeof(state)))
+    except (AttributeError, OSError):   # Windows trop ancien
+        return False
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 class _SHFILEOPSTRUCTW(ctypes.Structure):

@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFrame, QGrid
 
 from .. import APP_NAME, APP_VERSION, applog, obsfiles, paths, vcam
 from ..controller import RESUME_GUARD_S
-from ..framesync import FrameSync
+from ..framesync import OP_NAMES, FrameSync
 from ..hotkeys import GlobalHotkeys
 from ..manager import AUTOSAVE_SLUG, Manager
 from ..preview import STATE_ACTIVE, STATE_AWAY, STATE_BACKGROUND
@@ -51,6 +51,7 @@ class MainWindow(QMainWindow):
         root.setSpacing(0)
         root.addWidget(self._build_top_bar())
         root.addWidget(self._build_naming_bar())
+        root.addWidget(self._build_alert_banner())
 
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -97,6 +98,7 @@ class MainWindow(QMainWindow):
         self.framesync = FrameSync(self)
         self.framesync.finished.connect(self._on_framesync)
         self._sync_busy, self._sync_started = False, 0.0
+        self._stopping: set[str] = set()   # instances confiées à l'arrêt synchronisé
 
         # Contexte des aperçus : premier plan, arrière-plan, absent ; cartes visibles ou non.
         self.system = SystemEvents(int(self.winId()))
@@ -158,6 +160,46 @@ class MainWindow(QMainWindow):
         lay.addWidget(new_btn)
         lay.addWidget(self._btn("", "cogs.svg", "Paramètres", self.open_settings))
         return bar
+
+    def _build_alert_banner(self) -> QFrame:
+        """Bandeau rouge des problèmes graves (rec bloqué, OBS fermé, son en panne…)."""
+        self.alert_banner = QFrame(objectName="alertBanner")
+        lay = QHBoxLayout(self.alert_banner)
+        lay.setContentsMargins(14, 8, 14, 8)
+        lay.setSpacing(12)
+        self.alert_text = QLabel(objectName="alertText")
+        self.alert_text.setWordWrap(True)
+        hide = QPushButton("Masquer", objectName="alertHide")
+        hide.setToolTip("Masquer ce bandeau (il revient au prochain problème)")
+        hide.clicked.connect(self._hide_alerts)
+        lay.addWidget(self.alert_text, 1)
+        lay.addWidget(hide, 0, Qt.AlignmentFlag.AlignTop)
+        self.alert_banner.hide()
+        self._alerts_hidden: set[str] = set()
+        self._global_alerts: dict[str, str] = {}   # problèmes qui concernent plusieurs instances
+        return self.alert_banner
+
+    def _current_alerts(self) -> list[str]:
+        out = [f"{c.inst.name} : {m}" for c in self.manager.controllers.values() for m in c.critical()]
+        return out + list(self._global_alerts.values())
+
+    def _hide_alerts(self) -> None:
+        self._alerts_hidden = set(self._current_alerts())
+        self.alert_banner.hide()
+
+    def _refresh_alerts(self) -> None:
+        alerts = self._current_alerts()
+        self._alerts_hidden &= set(alerts)   # un problème réglé puis revenu se réaffiche
+        shown = [a for a in alerts if a not in self._alerts_hidden]
+        if shown:
+            self.alert_text.setText("⚠ " + "\n⚠ ".join(alerts))
+        self.alert_banner.setVisible(bool(shown))
+
+    def _on_alert(self, message: str) -> None:
+        """Nouveau problème grave : bandeau, barre d'état et bouton de la barre des tâches qui clignote."""
+        self.statusBar().showMessage("⚠ " + message, 20000)
+        self._refresh_alerts()
+        QApplication.alert(self, 0)   # clignote jusqu'à ce que Multi OBS soit ouvert
 
     def _build_naming_bar(self) -> QFrame:
         bar = QFrame(objectName="namingBar")
@@ -256,6 +298,7 @@ class MainWindow(QMainWindow):
             if inst.id not in self.cards:
                 card = InstanceCard(self.manager.controller(inst.id), vcam_name=names.get(inst.vcam, ""))
                 card.ctrl.actionFailed.connect(lambda m: self.statusBar().showMessage("⚠ " + m, 10000))
+                card.ctrl.alertRaised.connect(self._on_alert)
                 card.launchRequested.connect(lambda i: self.launch([i]))
                 card.editRequested.connect(self.edit_instance)
                 card.deleteRequested.connect(self.delete_instance)
@@ -467,11 +510,23 @@ class MainWindow(QMainWindow):
         if not targets:
             return "Rien d'allumé"
         if mode == "on" or (mode == "toggle" and not any(c.recording for c in targets)):
-            for c in targets:
+            starting = [c for c in targets if not c.recording]
+            for c in starting:
                 c.start_record()
+            # À l'image près : début des fichiers aligné par de courtes pauses (voir framesync.py) ;
+            # impossible pour une instance qui ne peut pas se mettre en pause.
+            aligned = [c for c in starting if not c.pause_blocked]
+            if len(aligned) >= 2:
+                self._sync_busy, self._sync_started = True, time.monotonic()
+                self.framesync.align([self._sync_target(c) for c in aligned])
         else:
-            for c in targets:
-                c.stop_record()
+            recs = [c for c in targets if c.recording]
+            if len(recs) >= 2:       # même dernière image partout
+                self._stopping = {c.inst.id for c in recs}
+                self.framesync.stop([self._sync_target(c) for c in recs])
+            else:
+                for c in recs:
+                    c.stop_record()
         return ""
 
     def pause_all(self, mode: str = "toggle") -> str:
@@ -509,16 +564,30 @@ class MainWindow(QMainWindow):
         return c.inst.id, c.inst.port, c.inst.password, c.inst.name
 
     def _on_framesync(self, op: str, ids: list, warnings: list) -> None:
-        self._sync_busy = False
+        if op != "stop":
+            self._sync_busy = False
         for inst_id in ids:
             c = self.manager.controllers.get(inst_id)
             if c and op == "pause":
                 QTimer.singleShot(800, c._check_paused)   # OBS répond « OK » même s'il refuse la pause
+        if op == "stop":   # instance injoignable pour l'arrêt synchronisé : arrêt simple
+            for inst_id in self._stopping - set(ids):
+                c = self.manager.controllers.get(inst_id)
+                if c:
+                    c.stop_record()
+            self._stopping = set()
+        if op == "align":
+            rounds = (self.framesync.last_report or [{}])[0].get("rounds") or []
+            if rounds:
+                applog.log("Synchro du départ (écarts en images) : " + " → ".join(map(str, rounds)))
+            if not warnings and len(rounds) > 1:
+                self.statusBar().showMessage("✓ Départ des recs aligné à l'image près", 6000)
         if warnings:
             self.statusBar().showMessage("⚠ " + " · ".join(warnings), 15000)
-            applog.log(f"Synchro de la {op} : " + " · ".join(warnings))
+            applog.log(f"Synchro {OP_NAMES.get(op, op)} : " + " · ".join(warnings))
 
     def refresh_global(self) -> None:
+        self._refresh_alerts()
         targets = self._targets()
         recording = any(c.recording for c in targets)
         recs = [c for c in targets if c.recording and not (c.pause_blocked and not c.paused)]

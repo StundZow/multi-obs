@@ -22,6 +22,7 @@ ORIGINAL_VCAM_GUID = uuid.UUID("A3FCE0F5-3493-419F-958A-ABA1250EC20B")
 _GUID_NAMESPACE = uuid.UUID("6b1f3e2a-8a77-4c55-9d7e-0b5d6c3f9a10")
 
 WINDSHOW_REL = Path("obs-plugins") / "64bit" / "win-dshow.dll"
+SYNC_PLUGIN_REL = Path("obs-plugins") / "64bit" / "multiobs-sync.dll"
 MODULE_DIR_REL = Path("data") / "obs-plugins" / "win-dshow"
 PORTABLE_MARKER = "obs_portable_mode.txt"
 TREE_MARKER = ".multiobs_tree.json"
@@ -235,7 +236,21 @@ def build_tree(inst_dir: Path, vcam: int, progress: Progress) -> None:
             shutil.copy2(src, dst)
     (inst_dir / PORTABLE_MARKER).write_text("", "utf-8")
     (inst_dir / TREE_MARKER).write_text(json.dumps({"runtime": rt, "vcam": vcam}, indent=2), "utf-8")
+    install_sync_plugin(inst_dir)
     progress(total, total, "Instance prête")
+
+
+def install_sync_plugin(inst_dir: Path) -> None:
+    """Ajoute à l'instance le module OBS qui permet d'aligner les recs à l'image près (framesync.py)."""
+    src, dst = paths.SYNC_PLUGIN, inst_dir / SYNC_PLUGIN_REL
+    if not src.exists() or not dst.parent.is_dir():
+        return
+    try:
+        data = src.read_bytes()
+        if not dst.exists() or dst.read_bytes() != data:
+            dst.write_bytes(data)
+    except OSError:
+        pass   # OBS ouvert (DLL chargée) : la nouvelle version sera posée au prochain allumage
 
 
 def build_vcam_modules(n: int, color: str | None = None) -> Path:

@@ -28,7 +28,8 @@ Parce que deux OBS lancés normalement partagent le même dossier de configurati
 
 - 🧩 **Instances indépendantes** — scènes, profils, plugins et réglages séparés ; aucune ne peut faire planter les autres
 - 🔗 **Pilotage global** — tout allumer, tout enregistrer, tout mettre en pause d'un clic ; une instance déliée (**Link**) reste à part, pratique pour le live
-- ⏸️ **Pause à l'image près** — « Tout en pause » enlève exactement les mêmes images dans chaque enregistrement : les pistes restent calées au montage, pause après pause
+- ⏱️ **Départ, pause et arrêt à l'image près** — « Tout enregistrer » aligne le début des fichiers, « Tout en pause » enlève exactement les mêmes images partout, « Tout arrêter » les finit sur la même image : même nombre d'images dans chaque fichier, les pistes se calent d'un coup au montage
+- 🚨 **Alertes immédiates** — rec bloqué, OBS fermé pendant le rec, erreur d'OBS, son qui décroche ou micro perdu, encodeur en panne, images perdues, disque presque plein : bandeau rouge, carte en rouge, bouton de la barre des tâches qui clignote, cadre rouge sur le Stream Deck
 - 🎛️ **Plugin Stream Deck** — des touches colorées pour chaque OBS ou pour tout Multi OBS : rec avec le timecode, pause, allumer / éteindre, scènes, sources, filtres, son, live… en appui court ou long ; installé en un clic
 - 👀 **Aperçu en direct sans compression**, vumètres audio, images perdues, CPU, et alertes (pas de son, disque presque plein, OBS qui attend une réponse)
 - 🗂️ **Instances réduites** — le bouton **œil barré** range une instance dont tu ne te sers pas (l'OBS du live…) dans une barre en bas, avec son état ; **Remettre** la ramène parmi les autres
@@ -129,10 +130,14 @@ Mesuré avec trois instances et les réglages par défaut : 2 à 4 % du processe
 - **Une installation OBS portable par instance.** Multi OBS copie ton OBS une fois (`data/runtime`), et chaque instance y pointe par liens physiques : trois instances ne prennent presque pas plus de place qu'une. Chacune a son propre dossier `config/`.
 - **Pilotage par obs-websocket**, intégré à OBS : une connexion pour les commandes et l'état, une seconde en binaire (MessagePack) réservée à l'aperçu.
 - **Pause à l'image près** : chaque OBS a sa propre horloge d'images et coupe une pause sur l'une d'elles ; mis en pause « en même temps », deux OBS peuvent enlever une image de plus ou de moins, et l'écart s'accumule (jusqu'à 6 images après 20 pauses dans nos mesures). Multi OBS exécute la pause et la reprise dans la boucle d'images de chaque OBS (lots obs-websocket « SerialFrame ») et programme chaque reprise exactement N images après la pause : **0 image d'écart sur 100 pauses mesurées** à 60 i/s, aperçus allumés ou non (mesure image par image sur les fichiers enregistrés). OBS ignore une pause demandée juste après une reprise (en répondant « OK ») : Multi OBS attend ce qu'il faut et redemande si besoin, sans casser l'égalité.
+- **Départ et arrêt à l'image près** : obs-websocket ne dit pas à quelle image commence un fichier, et chaque OBS démarre son rec quand son interface le peut (0 à 7 images d'écart mesurées). Multi OBS ajoute à chaque instance un petit module OBS open source ([`obsplugin/multiobs-sync.c`](obsplugin/multiobs-sync.c)) qui relève, pour chaque image écrite, son heure de rendu et sa position dans le fichier. Juste après le départ, les instances parties en avance font une pause de quelques images, puis tout est revérifié ; à l'arrêt, chaque OBS coupe sur la même position. Mesuré avec un flash (une image blanche envoyée à toutes les instances à la même image) : **65 départs et 65 arrêts alignés au mieux sur 65**, avec plusieurs réglages (il reste au plus une fraction d'image : les horloges d'images des OBS ne sont pas en phase). Chaque pause resynchronise aussi les fichiers. Les pauses d'alignement durent au moins 0,1 s : une pause de moins de 21 ms fait perdre le son à OBS pour de bon (bug d'OBS) et l'enregistrement ne peut plus s'arrêter.
+- **Bridage de Windows 11 évité** : réduit ou en arrière-plan, un programme n'obtient plus la minuterie précise qu'il demande ; OBS rendait alors chaque image jusqu'à 15 ms après son heure (petites saccades). Multi OBS retire ce bridage pour ses OBS : moins de 2 ms.
+- **Testé sous la charge d'un jeu** : un programme Direct3D 11 capturé en capture de jeu (carte graphique à 99-100 %, 6 Go de mémoire vidéo), des chargements (processeur à 100 %, 6 Go écrits sur le disque) et des pics, avec des pauses régulières, comparé à trois OBS lancés seuls. Aucun plantage, fichiers intacts, son calé sur l'image à quelques millisecondes près, mêmes nombres d'images dans les trois fichiers. Quand carte graphique et processeur saturent ensemble, des OBS seuls répètent 12 à 14 % des images (encodeur qui décroche) ; Multi OBS, qui met ses OBS en priorité « au-dessus de la normale » : 0 à 0,1 % (une fois 7 % pour l'instance 4K, la plus lourde, et l'alerte « images perdues » le signale).
+- **Alertes** : en plus de l'état donné par obs-websocket (fichier qui ne grossit plus, OBS fermé, images perdues…), Multi OBS lit le journal de chaque OBS en direct : son qui décroche, périphérique perdu, encodeur en panne, écriture impossible, carte graphique perdue.
 - **Stream Deck** : le plugin (Node.js fourni par le logiciel Stream Deck, sans dépendance) parle à Multi OBS par un petit serveur WebSocket local : 127.0.0.1 seulement, jeton renouvelé à chaque démarrage (dans `%LOCALAPPDATA%\Multi OBS\remote.json`), connexions venant d'une page web refusées. Multi OBS pousse l'état des instances, et suit dans OBS ce que les touches affichent (scène à l'antenne, filtres, sources visibles, sons coupés) grâce à ses événements ; le plugin dessine les touches en SVG.
 - **Caméras virtuelles** : le module de caméra virtuelle d'OBS est dupliqué et modifié pour chaque instance (identifiant et mémoire partagée propres), puis enregistré pour l'utilisateur courant.
 - **Installateur unique** : `Multi-OBS-Setup.exe` contient l'appli. Au lancement, il vérifie s'il existe une version plus récente sur GitHub. Les mises à jour de l'appli téléchargent ce même installateur, qui remplace Multi OBS et le relance — les instances OBS continuent de tourner pendant ce temps.
-- **Testé** par une batterie de près de 60 vérifications : enregistrements simultanés avec pauses (durées, images, son), boutons, raccourcis, aperçus, économies, plantages, redémarrage ; par un banc qui relit chaque image des fichiers pour vérifier que les pauses enlèvent les mêmes images partout ; et par un test de bout en bout du Stream Deck (faux logiciel Stream Deck, vrai plugin, vrais OBS : 96 vérifications).
+- **Testé** par une batterie de près de 60 vérifications : enregistrements simultanés avec pauses (durées, images, son), boutons, raccourcis, aperçus, économies, plantages, redémarrage ; par des bancs qui relisent chaque image des fichiers pour vérifier que départs, pauses et arrêts tombent sur les mêmes images partout ; par des pannes provoquées exprès (OBS tué en plein rec, rec bloqué, erreurs dans le journal d'OBS, encodeur débordé) pour vérifier chaque alerte ; par les tests de charge ci-dessus ; et par un test de bout en bout du Stream Deck (faux logiciel Stream Deck, vrai plugin, vrais OBS : 98 vérifications).
 
 Les données sont dans le dossier d'installation :
 
@@ -148,13 +153,19 @@ data/
 
 Pour mettre à jour OBS : mets à jour ton OBS habituel, puis ⚙ → Général → « Mettre à jour les instances ».
 
-Le journal `data/multiobs.log` note les événements rares utiles en cas de souci (caméras virtuelles réinstallées, pause qu'OBS a tardé à appliquer…).
+Le journal `data/multiobs.log` note les événements rares utiles en cas de souci (alertes, écarts corrigés au départ des recs, caméras virtuelles réinstallées, pause qu'OBS a tardé à appliquer…).
 
 ## Lancer depuis les sources
 
 ```bash
 pip install PySide6 psutil
 python "Multi OBS.pyw"
+```
+
+Le module OBS (`obsplugin/bin/multiobs-sync.dll`) est fourni compilé. Pour le recompiler après avoir modifié `obsplugin/multiobs-sync.c` (Visual Studio avec les outils C++ et git nécessaires) :
+
+```bash
+python obsplugin/build_plugin.py
 ```
 
 ## Publier une nouvelle version (pour les mainteneurs)

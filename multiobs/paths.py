@@ -24,9 +24,11 @@ STATE_FILE = DATA / "multiobs.json"
 if getattr(sys, "frozen", False):
     ASSETS = Path(getattr(sys, "_MEIPASS", ROOT)) / "multiobs" / "assets"
     STREAMDECK = Path(getattr(sys, "_MEIPASS", ROOT)) / "streamdeck"   # plugin Stream Deck livré
+    SYNC_PLUGIN = Path(getattr(sys, "_MEIPASS", ROOT)) / "obsplugin" / "multiobs-sync.dll"
 else:
     ASSETS = Path(__file__).resolve().parent / "assets"
     STREAMDECK = ROOT / "streamdeck"
+    SYNC_PLUGIN = ROOT / "obsplugin" / "bin" / "multiobs-sync.dll"   # module OBS d'alignement des recs
 ICONS = ASSETS / "icons"
 
 OBS_EXE_REL = Path("bin") / "64bit" / "obs64.exe"
