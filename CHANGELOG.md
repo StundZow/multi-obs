@@ -3,6 +3,37 @@
 Chaque version publiée avec `python release.py X.Y.Z` reprend la section correspondante :
 c'est ce texte que Multi OBS affiche quand il propose la mise à jour.
 
+## 1.1.2
+
+- **Le live en violet** : la pastille « LIVE » avec la durée du live, en haut à gauche de l'aperçu, et
+  l'étiquette « LIVE » à côté du nom de l'instance sont maintenant violettes, pour ne plus les confondre
+  avec le rec (qui reste rouge). Couleur au choix dans ⚙ → Aperçu → « Couleur du live ».
+- **Fichiers sans ton nom** : décoche la case « Nom » en haut pour les enregistrements solo
+  (`cam-Tuto-2026-10-24_…` au lieu de `Stund-cam-Tuto-…`). Ton nom reste écrit, prêt à revenir, et le
+  réglage est gardé dans les préconfigs.
+- **Aperçus fluides derrière un jeu** : quand un jeu est au premier plan, Windows 11 ralentissait Multi OBS
+  (minuteries imprécises, processeur en mode économie) et les aperçus saccadaient : jusqu'à 18 % d'images
+  en retard mesurées avec le processeur chargé. Multi OBS se protège maintenant lui-même, comme il le
+  faisait déjà pour ses OBS (⚙ → SafeGuard → « Empêcher Windows de ralentir les OBS et Multi OBS »).
+- **Prévenu si une conversion en MP4 n'est pas finie** : éteindre une instance, « Tout éteindre » ou fermer
+  Multi OBS pendant qu'OBS convertit le rec en MP4 demande maintenant quoi faire : éteindre à la fin de la
+  conversion (proposé par défaut : la barre affiche « puis extinction », et Multi OBS reste ouvert jusque-là
+  s'il le faut), éteindre maintenant (le MP4 ne sera pas fini, le MKV reste complet) ou annuler. Sur le
+  Stream Deck, la touche affiche « Arrêt après la conversion ». Et une instance éteinte pendant un rec attend
+  maintenant la vraie fin de la conversion (avant : 30 s au plus, trop court sur un disque dur).
+- **Plus de clic perdu sur « Tout en pause » / « Tout reprendre »** : cliqué juste après « Tout
+  enregistrer » (pendant que les recs démarrent et s'alignent), ou « Tout reprendre » cliqué dès que la
+  pause s'affiche, le clic pouvait être ignoré sans rien dire, surtout quand le PC est chargé. La pause est
+  maintenant faite dès que le départ est aligné (deux clics pendant ce temps s'annulent), et la reprise est
+  acceptée dès que la pause est faite partout. Le double-clic accidentel reste sans effet.
+- **Plus de saccades pendant la conversion en MP4** : pendant qu'OBS convertit sur un disque dur, lire la
+  taille du MP4 (pour la barre de conversion) bloquait jusqu'à 0,7 s, et toute la fenêtre de Multi OBS se
+  figeait, aperçus compris. Les accès disque se font maintenant à part : l'interface ne bloque plus (23 ms
+  au pire, mesuré avec un disque qui met 0,7 s à répondre). Utile aussi au réveil d'un disque en veille.
+- **Aperçu plus régulier** : les images étaient demandées toutes les 16 ms au lieu de 16,67 ms à 60 i/s ;
+  une demande sur 25 retombait sur l'image déjà reçue, d'où un petit à-coup régulier. Images en retard :
+  de 5 % à 1,5 %.
+
 ## 1.1.1
 
 - **Nouvel onglet SafeGuard** dans les paramètres (⚙) : tout ce qui surveille tes recs et tes lives au

@@ -17,7 +17,7 @@ from ..remote import RemoteServer
 from ..syswatch import SystemEvents
 from .card import InstanceCard, MiniChip
 from .deck_status import DeckStatus
-from .dialogs import InstanceDialog, SettingsDialog
+from .dialogs import InstanceDialog, SettingsDialog, ask_conversions
 from .tasks import Task, run_task
 from .widgets import FlowLayout, icon
 
@@ -76,6 +76,8 @@ class MainWindow(QMainWindow):
         root.addWidget(self.mini_bar)
 
         self.remote = None   # pilotage par le Stream Deck : lancé par apply_remote()
+        self._close_choice = ""   # « stop » : fermeture en attente de la fin des conversions MP4
+        self._quit_timer: QTimer | None = None
         self.status_obs = QLabel()
         self.status_vcam = QLabel()
         self.status_hotkeys = QLabel()
@@ -98,6 +100,8 @@ class MainWindow(QMainWindow):
         self.framesync = FrameSync(self)
         self.framesync.finished.connect(self._on_framesync)
         self._sync_busy, self._sync_started = False, 0.0
+        self._sync_op = ""                     # opération de synchro en cours : align / pause / resume
+        self._pending_pause: str | None = None  # pause demandée pendant l'alignement du départ
         self._stopping: set[str] = set()   # instances confiées à l'arrêt synchronisé
 
         # Contexte des aperçus : premier plan, arrière-plan, absent ; cartes visibles ou non.
@@ -208,13 +212,19 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(14, 7, 14, 7)
         lay.setSpacing(6)
         s = self.manager.settings
-        lbl = QLabel("Nom")
-        lbl.setProperty("muted", True)
-        lay.addWidget(lbl)
+        # Case décochée : les fichiers n'ont pas le nom (enregistrements solo), mais il reste écrit ici.
+        self.creator_on = QCheckBox("Nom", objectName="namingCheck")
+        self.creator_on.setChecked(bool(s.get("creator_in_name", True)))
+        self.creator_on.setToolTip("Décoche pour que tes fichiers n'aient pas ton nom (enregistrements solo).\n"
+                                   "Ton nom reste écrit à côté, prêt à revenir.")
+        lay.addWidget(self.creator_on)
         self.creator_edit = QLineEdit(s.get("creator", ""))
         self.creator_edit.setPlaceholderText("ton nom")
         self.creator_edit.setFixedWidth(150)
         self.creator_edit.setToolTip("Ton nom, au début du nom de chaque fichier")
+        self.creator_edit.setEnabled(self.creator_on.isChecked())
+        self.creator_on.toggled.connect(self.creator_edit.setEnabled)
+        self.creator_on.toggled.connect(lambda: (self._apply_naming(), self._refresh_naming_preview()))
         lay.addWidget(self.creator_edit)
         lbl = QLabel("Vidéo")
         lbl.setProperty("muted", True)
@@ -249,14 +259,17 @@ class MainWindow(QMainWindow):
         return bar
 
     def _apply_naming(self) -> None:
-        self.manager.set_naming(self.creator_edit.text(), self.video_edit.text())
+        self.manager.set_naming(self.creator_edit.text(), self.video_edit.text(),
+                                creator_in_name=self.creator_on.isChecked())
         for card in self.cards.values():
             card.refresh()
 
     def _refresh_naming_preview(self) -> None:
         from .. import naming
         s = self.manager.settings
-        example = naming.preview(s.get("filename_template"), self.creator_edit.text(), "cam", self.video_edit.text())
+        example = naming.preview(s.get("filename_template"),
+                                 self.creator_edit.text() if self.creator_on.isChecked() else "",
+                                 "cam", self.video_edit.text())
         fm = self.naming_preview.fontMetrics()
         self.naming_preview.setToolTip(f"Nom du prochain fichier : {example}")
         self.naming_preview.setText(fm.elidedText(f"output : {example}", Qt.TextElideMode.ElideRight,
@@ -480,17 +493,51 @@ class MainWindow(QMainWindow):
         """Allume les instances affichées : les réduites (ex. l'OBS du live) restent comme elles sont."""
         self.launch([i.id for i in self.manager.instances if not i.card_minimized], interactive=interactive)
 
-    def close_all(self) -> None:
-        recording = [c.inst.name for c in self.manager.controllers.values() if c.recording or c.streaming]
+    def close_all(self) -> str:
+        """Éteint toutes les instances. Renvoie « done », « waiting » (certaines s'éteindront à la fin de
+        leur rec ou de leur conversion MP4 : Multi OBS doit rester ouvert jusque-là) ou « cancelled »."""
+        ctrls = list(self.manager.controllers.values())
+        recording = [c.inst.name for c in ctrls if c.recording or c.streaming]
         if recording:
             r = QMessageBox.question(self, APP_NAME,
                                      "Ces instances enregistrent ou sont en live :\n• " + "\n• ".join(recording)
                                      + "\n\nTout éteindre quand même ?")
             if r != QMessageBox.StandardButton.Yes:
-                return
-        for c in self.manager.controllers.values():
-            if c.running and not c.shutdown_gracefully():
+                return "cancelled"
+        converting = [c for c in ctrls if c.running and c.remux is not None and not c.recording]
+        wait = False
+        if converting:
+            choice = ask_conversions(self, converting)
+            if choice is None:
+                return "cancelled"
+            wait = choice == "wait"
+        for c in ctrls:
+            if not c.running:
+                continue
+            if wait and c in converting:
+                c.close_after_conversion()
+            elif not c.shutdown_gracefully():
                 c.kill()
+        return "waiting" if self._closing_later() else "done"
+
+    def _closing_later(self) -> bool:
+        """Des instances attendent la fin de leur rec ou de leur conversion pour s'éteindre."""
+        return any(c.running and (c.close_after_remux or c.closing_after_stop)
+                   for c in self.manager.controllers.values())
+
+    def _quit_when_off(self) -> None:
+        """Fermeture demandée pendant une conversion MP4 : Multi OBS reste ouvert le temps qu'elle finisse
+        (les instances s'éteignent alors), puis se ferme."""
+        self.statusBar().showMessage("Multi OBS se fermera à la fin des conversions MP4…")
+        if self._quit_timer is None:
+            self._quit_timer = QTimer(self, interval=1000, timeout=self._check_quit)
+        self._quit_timer.start()
+
+    def _check_quit(self) -> None:
+        if self._closing_later():
+            return
+        self._quit_timer.stop()
+        self.close()
 
     # ------------------------------------------------------------------ #
     # Actions globales
@@ -518,9 +565,10 @@ class MainWindow(QMainWindow):
             # impossible pour une instance qui ne peut pas se mettre en pause.
             aligned = [c for c in starting if not c.pause_blocked]
             if len(aligned) >= 2:
-                self._sync_busy, self._sync_started = True, time.monotonic()
+                self._sync_busy, self._sync_started, self._sync_op = True, time.monotonic(), "align"
                 self.framesync.align([self._sync_target(c) for c in aligned])
         else:
+            self._pending_pause = None
             recs = [c for c in targets if c.recording]
             if len(recs) >= 2:       # même dernière image partout
                 self._stopping = {c.inst.id for c in recs}
@@ -532,6 +580,15 @@ class MainWindow(QMainWindow):
 
     def pause_all(self, mode: str = "toggle") -> str:
         """Pause / reprise des instances liées, à l'image près ; mode toggle / on (pause) / off (reprise)."""
+        if self._sync_busy and self._sync_op == "align" and time.monotonic() - self._sync_started < 10:
+            # Départ des recs en cours (OBS n'a peut-être même pas encore confirmé le rec) puis alignement :
+            # la pause est faite juste après, au lieu d'être perdue. Deux bascules s'annulent.
+            if mode == "toggle":
+                self._pending_pause = None if self._pending_pause == "toggle" else "toggle"
+            else:
+                self._pending_pause = mode
+            self.statusBar().showMessage("Pause dans un instant : départ des recs en cours d'alignement…", 4000)
+            return ""
         recs = [c for c in self._targets() if c.recording]
         blocked = [c.inst.name for c in recs if c.pause_blocked and not c.paused]
         if blocked:
@@ -542,13 +599,20 @@ class MainWindow(QMainWindow):
         if not recs:
             return "Pause bloquée" if blocked else "Pas de rec"
         if self._sync_busy and time.monotonic() - self._sync_started < 10:
-            return "Patiente"
+            # Pause ou reprise encore en cours : refusé (double clic)… sauf si elle est déjà faite partout
+            # (OBS l'a confirmée, le compte rendu de la synchro arrive juste après) : sinon un « Tout
+            # reprendre » cliqué dès l'affichage de la pause serait perdu.
+            done = all(c.paused for c in recs) if self._sync_op == "pause" else not any(c.paused for c in recs)
+            if not done:
+                return "Patiente"
+        self._pending_pause = None   # une demande faite maintenant remplace celle en attente
         resume = mode == "off" or (mode == "toggle" and all(c.paused for c in recs))
         todo = [c for c in recs if c.paused == resume]
         if not todo:
             return ""
         # À l'image près : chaque instance enlève exactement la même durée (voir framesync.py).
         self._sync_busy, self._sync_started = True, time.monotonic()
+        self._sync_op = "resume" if resume else "pause"
         targets = [self._sync_target(c) for c in todo]
         if resume:
             self.framesync.resume(targets)
@@ -565,8 +629,11 @@ class MainWindow(QMainWindow):
         return c.inst.id, c.inst.port, c.inst.password, c.inst.name
 
     def _on_framesync(self, op: str, ids: list, warnings: list) -> None:
-        if op != "stop":
-            self._sync_busy = False
+        if op != "stop" and op == self._sync_op:   # pas le compte rendu d'une opération déjà dépassée
+            self._sync_busy, self._sync_op = False, ""
+        if op == "align" and self._pending_pause:   # pause demandée pendant l'alignement : maintenant
+            mode, self._pending_pause = self._pending_pause, None
+            QTimer.singleShot(0, lambda: self.pause_all(mode))
         for inst_id in ids:
             c = self.manager.controllers.get(inst_id)
             if c and op == "pause":
@@ -858,7 +925,8 @@ class MainWindow(QMainWindow):
     def closeEvent(self, e: QCloseEvent) -> None:
         running = [c.inst.name for c in self.manager.controllers.values() if c.running]
         if running and not getattr(self, "_quitting_for_update", False):
-            choice = self.manager.settings.get("on_close", "ask")
+            # Déjà choisi « Tout éteindre » et en attente de la fin des conversions : on ne redemande pas.
+            choice = self._close_choice or self.manager.settings.get("on_close", "ask")
             if choice not in ("keep", "stop"):
                 box = QMessageBox(QMessageBox.Icon.Question, APP_NAME,
                                   "Des instances OBS sont encore allumées :\n• " + "\n• ".join(running), parent=self)
@@ -878,7 +946,16 @@ class MainWindow(QMainWindow):
                     self.manager.settings["on_close"] = choice
                     self.manager.save()
             if choice == "stop":
-                self.close_all()
+                result = self.close_all()
+                if result == "cancelled":
+                    self._close_choice = ""
+                    e.ignore()
+                    return
+                if result == "waiting":   # rec ou conversion MP4 à finir : Multi OBS reste ouvert jusque-là
+                    self._close_choice = "stop"
+                    e.ignore()
+                    self._quit_when_off()
+                    return
         self.hotkeys.clear()
         if self.remote is not None:
             self.remote.stop()

@@ -71,6 +71,9 @@ def instance_ovt(inst_id: str, name: str, key: str) -> str:
 def app_qss() -> str:
     y = YAMI
     ic = paths.ICONS.as_posix()
+    # Pastille « LIVE » à la couleur choisie dans les paramètres (état live_<couleur>)
+    live_chips = "\n".join(f'QLabel#chip[state="live_{k}"] {{ background: {shades[2]}; color: white; }}'
+                           for k, (_name, shades) in ACCENTS.items())
     return f"""
 * {{ font-family: "Segoe UI", "Open Sans", sans-serif; font-size: 10pt; color: {y['white1']}; }}
 QMainWindow, QDialog, QWidget#central, QScrollArea, QWidget#cardsContainer {{ background: {y['grey7']}; }}
@@ -113,6 +116,7 @@ QLineEdit, QComboBox, QSpinBox, QKeySequenceEdit {{
 }}
 QLineEdit:hover, QComboBox:hover, QSpinBox:hover {{ border-color: {y['grey1']}; }}
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{ border-color: {y['blue3']}; background: {y['grey7']}; }}
+QLineEdit:disabled {{ background: {y['grey6']}; border-color: {y['grey5']}; color: {y['grey1']}; }}
 QComboBox::drop-down {{ border: none; width: 22px; }}
 QComboBox::down-arrow {{ image: url({ic}/down.svg); width: 12px; height: 12px; }}
 QComboBox QAbstractItemView {{ background: {y['grey6']}; border: 1px solid {y['grey4']}; selection-background-color: {y['blue3']}; outline: 0; }}
@@ -169,6 +173,7 @@ QLabel#chip {{ border-radius: 9px; padding: 1px 9px; font-size: 8pt; font-weight
 QLabel#chip[state="rec"] {{ background: {y['red3']}; color: white; }}
 QLabel#chip[state="pause"] {{ background: {y['yellow3']}; color: white; }}
 QLabel#chip[state="live"] {{ background: {y['red4']}; color: white; }}
+{live_chips}
 QLabel#chip[state="ready"] {{ background: {y['green3']}; color: white; }}
 QLabel#chip[state="busy"] {{ background: {y['blue4']}; color: white; }}
 QLabel#warning {{ color: {y['yellow2']}; font-size: 9pt; }}
@@ -195,6 +200,8 @@ QToolButton#linkToggle:hover {{ color: {y['white1']}; background: rgba(255, 255,
 QPushButton#vcamToggle {{ padding: 2px 8px; min-height: 16px; font-size: 9pt; }}
 QComboBox#typeCombo {{ padding: 2px 6px; min-height: 16px; font-size: 9pt; }}
 QFrame#namingBar {{ background: {y['grey7']}; border-bottom: 1px solid {y['grey8']}; }}
+QCheckBox#namingCheck {{ color: {y['white5']}; spacing: 5px; }}
+QCheckBox#namingCheck:hover {{ color: {y['white1']}; }}
 QLabel#namingPreview {{ color: {y['grey1']}; font-size: 8.5pt; }}
 QFrame#emptyState {{ background: {y['grey6']}; border: 1px dashed {y['grey3']}; border-radius: 10px; }}
 QLabel#allMinimized {{ color: {y['white5']}; padding: 40px; }}

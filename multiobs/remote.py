@@ -333,6 +333,9 @@ class RemoteServer(QObject):
                 return "REC en cours"
             if c.streaming:
                 return "Live en cours"
+            if c.remux is not None:   # OBS convertit encore le rec en MP4 : extinction à la fin
+                c.close_after_conversion()
+                return "Arrêt après la conversion"
             if not c.shutdown_gracefully():
                 c.kill()
             return ""
@@ -448,10 +451,16 @@ class RemoteServer(QObject):
         busy = [c for c in m.controllers.values() if c.recording or c.streaming]
         if busy:
             return "REC en cours" if any(c.recording for c in busy) else "Live en cours"
+        converting = False
         for c in m.controllers.values():
-            if c.running and not c.shutdown_gracefully():
+            if not c.running:
+                continue
+            if c.remux is not None:   # OBS convertit encore le rec en MP4 : extinction à la fin
+                c.close_after_conversion()
+                converting = True
+            elif not c.shutdown_gracefully():
                 c.kill()
-        return ""
+        return "Arrêt après la conversion" if converting else ""
 
     # ------------------------------------------------------------------ #
     # Listes pour la fenêtre de réglages du Stream Deck

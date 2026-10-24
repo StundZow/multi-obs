@@ -1,5 +1,6 @@
 """État global de Multi OBS : instances, réglages, préconfigs."""
 import json
+import os
 import re
 import secrets
 import shutil
@@ -8,7 +9,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 
-from . import applog, naming, obsfiles, paths, theme, vcam
+from . import applog, naming, obsfiles, paths, theme, vcam, winapi
 from .controller import InstanceController
 from .instance_config import InstanceDef, copy_tree_tolerant, ensure_config
 
@@ -20,6 +21,7 @@ DEFAULT_SETTINGS = {
     "preview_fps": 60,
     "preview_divisor": 4,
     "preview_background_fps": -1,     # -1 : comme au premier plan
+    "live_color": "purple",           # pastille LIVE de l'aperçu et de la carte (le rec reste rouge)
     "taskbar_rename": True,
     "check_updates": True,
     "on_close": "ask",                # instances allumées à la fermeture : ask / keep / stop
@@ -31,6 +33,7 @@ DEFAULT_SETTINGS = {
     "vcam_scope": vcam.SCOPE_USER,
     "current_preset": "",
     "creator": "",
+    "creator_in_name": True,          # décoché : les fichiers n'ont pas ton nom (enregistrements solo)
     "video_name": "",
     "filename_template": naming.DEFAULT_TEMPLATE,
     "auto_remux": True,
@@ -123,23 +126,29 @@ class Manager(QObject):
     # ------------------------------------------------------------------ #
     # Nom des enregistrements
     # ------------------------------------------------------------------ #
+    def creator(self) -> str:
+        """Nom mis dans les fichiers : vide si la case « Nom » est décochée (le nom reste gardé)."""
+        return self.settings.get("creator", "") if self.settings.get("creator_in_name", True) else ""
+
     def filename_format(self, inst: InstanceDef) -> str:
         # Deux instances du même type enregistreraient sous le même nom : on les distingue.
         same_type = sum(1 for i in self.instances if i.rec_type == inst.rec_type)
         suffix = inst.name if same_type > 1 else ""
-        return naming.obs_format(self.settings.get("filename_template"), self.settings.get("creator", ""),
+        return naming.obs_format(self.settings.get("filename_template"), self.creator(),
                                  inst.rec_type, self.settings.get("video_name", ""), suffix)
 
     def filename_preview(self, inst: InstanceDef) -> str:
         same_type = sum(1 for i in self.instances if i.rec_type == inst.rec_type)
-        return naming.preview(self.settings.get("filename_template"), self.settings.get("creator", ""),
+        return naming.preview(self.settings.get("filename_template"), self.creator(),
                               inst.rec_type, self.settings.get("video_name", ""),
                               inst.name if same_type > 1 else "")
 
     def set_naming(self, creator: str | None = None, video: str | None = None,
-                   template: str | None = None) -> None:
+                   template: str | None = None, creator_in_name: bool | None = None) -> None:
         if creator is not None:
             self.settings["creator"] = creator
+        if creator_in_name is not None:
+            self.settings["creator_in_name"] = bool(creator_in_name)
         if video is not None:
             self.settings["video_name"] = video
         if template is not None:
@@ -345,6 +354,7 @@ class Manager(QObject):
             "saved_at": time.strftime("%Y-%m-%d %H:%M"),
             "instances": [i.to_dict() for i in self.instances],
             "naming": {"creator": self.settings.get("creator", ""),
+                       "creator_in_name": bool(self.settings.get("creator_in_name", True)),
                        "filename_template": self.settings.get("filename_template", naming.DEFAULT_TEMPLATE)},
         }
         (tmp / "preset.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False), "utf-8")
@@ -407,6 +417,13 @@ class Manager(QObject):
         for c in self.controllers.values():
             c.set_preview(int(self.settings["preview_fps"]), int(self.settings["preview_divisor"]),
                           int(self.settings["preview_background_fps"]))
+
+    def apply_unthrottle(self) -> None:
+        """SafeGuard : Windows ne bride ni les OBS ni Multi OBS. Bridé derrière un jeu, Multi OBS perd la
+        précision de ses minuteries : aperçus saccadés (18 % d'images en retard mesurés, 5 % débridé)."""
+        winapi.unthrottle(os.getpid(), bool(self.settings.get("obs_unthrottle", True)))
+        for c in self.controllers.values():
+            c.apply_throttle()
 
     def set_app_state(self, state: str) -> None:
         """Premier plan / arrière-plan / absent (réduit, verrouillé, écran éteint)."""

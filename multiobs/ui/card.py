@@ -10,12 +10,19 @@ from .. import naming, theme
 from ..controller import InstanceController
 from ..instance_config import record_directory
 from ..theme import YAMI
+from .dialogs import ask_conversions
 from .widgets import DiskBar, MeterWidget, PreviewWidget, RemuxBar, color_dot, human_size, icon
 
 
 def _restyle(w: QWidget) -> None:
     w.style().unpolish(w)
     w.style().polish(w)
+
+
+def _live_color(c: InstanceController) -> str:
+    """Couleur du live (Paramètres → Aperçu), violet par défaut : jamais confondu avec le rouge du rec."""
+    key = (c.settings or {}).get("live_color", "purple")
+    return key if key in theme.ACCENTS else "purple"
 
 
 def _status_chip(c: InstanceController) -> tuple[str, str]:
@@ -29,7 +36,7 @@ def _status_chip(c: InstanceController) -> tuple[str, str]:
     if c.recording:
         return "REC", "rec"
     if c.streaming:
-        return "LIVE", "live"
+        return "LIVE", f"live_{_live_color(c)}"
     return "Actif", "ready"
 
 
@@ -265,6 +272,13 @@ class InstanceCard(QFrame):
                                          "L'éteindre quand même ? (l'enregistrement est finalisé proprement)")
                 if r != QMessageBox.StandardButton.Yes:
                     return
+            elif self.ctrl.remux is not None:   # OBS convertit encore le rec en MP4
+                choice = ask_conversions(self, [self.ctrl])
+                if choice is None:
+                    return
+                if choice == "wait":
+                    self.ctrl.close_after_conversion()
+                    return
             if not self.ctrl.shutdown_gracefully():
                 self.ctrl.kill()
         else:
@@ -319,7 +333,7 @@ class InstanceCard(QFrame):
             badges.append((("PAUSE  " if c.paused else "● ") + (c.rec_time or "00:00:00"),
                            YAMI["yellow3"] if c.paused else YAMI["red3"]))
         if c.streaming:
-            badges.append(("LIVE " + (c.stream_time or ""), YAMI["red4"]))
+            badges.append(("LIVE " + (c.stream_time or ""), theme.accent(_live_color(c), 2)))
         if (badges, self.preview.corner) != (self.preview.badges, "VCam active" if c.vcam_on else "") \
                 or status == "stopped":
             self.preview.badges = badges
@@ -368,7 +382,7 @@ class InstanceCard(QFrame):
         self.remux_bar.setVisible(remux is not None)
         self.disk.setVisible(remux is None)
         if remux is not None:
-            self.remux_bar.set_state(remux, str(c.remux["mp4"]))
+            self.remux_bar.set_state(remux, str(c.remux["mp4"]), c.close_after_remux)
         else:
             folder = getattr(c, "disk_path", "")
             display = folder
@@ -440,6 +454,8 @@ class MiniChip(QFrame):
             text += "  " + c.rec_time
         elif c.remux_progress is not None:
             text, state = f"Conversion MP4  {int(c.remux_progress * 100)} %", "busy"
+            if c.close_after_remux:
+                text += "  · puis extinction"
         self.state.setText(text)
         if self.state.property("state") != state:
             self.state.setProperty("state", state)

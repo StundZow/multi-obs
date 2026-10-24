@@ -126,6 +126,7 @@ def main() -> int:
         installinfo.update_registered_version(APP_VERSION, Path(sys.executable))
 
     manager = Manager()
+    manager.apply_unthrottle()   # aperçus fluides même derrière un jeu (option SafeGuard)
     win = MainWindow(manager)
     win.updater = Updater(win, manager)
     win.show()

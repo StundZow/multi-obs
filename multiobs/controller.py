@@ -3,11 +3,12 @@ import math
 import os
 import shutil
 import subprocess
+import threading
 import time
 from pathlib import Path
 
 import psutil
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QImage
 
 from . import applog, health, obsfiles, taskbar, winapi
@@ -60,10 +61,12 @@ class InstanceController(QObject):
     alertRaised = Signal(str)     # nouveau problème grave (rec bloqué, OBS fermé, son en panne…)
     obsReady = Signal(str)
     previewFps = Signal(float)
+    _diskDone = Signal(object, object)   # (suite, résultat) d'un appel disque fait hors de l'interface
 
     def __init__(self, inst: InstanceDef, preview_fps: int = 60, preview_divisor: int = 4,
                  preview_background_fps: int = -1, parent=None):
         super().__init__(parent)
+        self._diskDone.connect(self._on_disk_done, Qt.ConnectionType.QueuedConnection)
         self.inst = inst
         self.proc: psutil.Process | None = None
         self.ws: ObsWs | None = None
@@ -77,8 +80,11 @@ class InstanceController(QObject):
         self.obs_dialogs: list[str] = []
         self.pause_blocked = False     # OBS désactive la pause avec ce réglage de sortie
         self._close_after_stop = False
+        self.close_after_remux = False   # s'éteindra quand OBS aura fini de convertir le rec en MP4
         self.settings: dict = {}
         self._remux_watch: list[dict] = []
+        self._remux_checking = False
+        self._disk_pending = False
         self._remux_timer = QTimer(self, interval=3000, timeout=self._check_remux)
         # Conversion MKV → MP4 en cours (barre sur la carte) : {"mp4", "total", "progress"…}
         self.remux: dict | None = None
@@ -363,25 +369,21 @@ class InstanceController(QObject):
             return True
         return self.request_close()
 
-    def _close_when_converted(self, mkv_path: str) -> None:
-        mp4 = Path(mkv_path).with_suffix(".mp4") if mkv_path.lower().endswith(".mkv") else None
-        if not (mp4 and self.settings.get("auto_remux", True)):
-            QTimer.singleShot(300, self.request_close)
-            return
-        state = {"since": time.monotonic(), "size": -1, "stable": 0}
+    @property
+    def closing_after_stop(self) -> bool:
+        """Éteinte pendant un rec : attend l'arrêt du rec (puis la conversion MP4) pour se fermer."""
+        return self._close_after_stop
 
-        def check():
-            try:
-                size = mp4.stat().st_size
-            except OSError:
-                size = -1
-            state["stable"] = state["stable"] + 1 if size > 0 and size == state["size"] else 0
-            state["size"] = size
-            if state["stable"] >= 2 or time.monotonic() - state["since"] > 30:
-                timer.stop()
-                self.request_close()
-        timer = QTimer(self, interval=500, timeout=check)
-        timer.start()
+    def close_after_conversion(self) -> None:
+        """Éteint l'instance quand OBS a fini de convertir le rec en MP4 (tout de suite s'il ne convertit
+        pas). Éteint en pleine conversion, OBS l'abandonne : le MP4 n'existerait pas (le MKV reste complet)."""
+        if self.remux is None:
+            if not self.shutdown_gracefully():
+                self.kill()
+            return
+        self.close_after_remux = True
+        self.closing = True
+        self.changed.emit()
 
     def request_close(self) -> bool:
         """Demande à OBS de se fermer (comme le bouton X). False si aucune fenêtre trouvée."""
@@ -433,6 +435,7 @@ class InstanceController(QObject):
             self._raise("crash", "OBS s'est fermé pendant le " + ("rec !" if self.recording else "live !"), 3600)
         self.proc = None
         self._close_after_stop = False
+        self.close_after_remux = False
         self._hwnd = None
         self.taskbar.hwnd = None
         self.record_dir = ""
@@ -507,17 +510,44 @@ class InstanceController(QObject):
         except Exception:
             self._hwnd = None
 
+    # ------------------------------------------------------------------ #
+    # Disque : jamais dans le fil de l'interface
+    # ------------------------------------------------------------------ #
+    def _disk(self, work, then) -> None:
+        """work() dans un fil à part, puis then(résultat) dans l'interface (None si work a échoué).
+        Pendant une conversion MP4 sur un disque dur, un simple stat bloque jusqu'à 0,7 s (et quelques
+        secondes au réveil d'un disque en veille) : l'interface et les aperçus se figeaient."""
+        def run():
+            try:
+                result = work()
+            except Exception:
+                result = None
+            try:
+                self._diskDone.emit(then, result)
+            except RuntimeError:   # Multi OBS fermé entre-temps
+                pass
+        threading.Thread(target=run, daemon=True).start()
+
+    def _on_disk_done(self, then, result) -> None:
+        then(result)
+
     def _refresh_disk(self) -> None:
+        if self._disk_pending:   # la lecture précédente n'est pas revenue (disque lent)
+            return
+        self._disk_pending = True
         folder = self.record_dir or str(record_directory(self.inst))
-        target = Path(folder)
-        while not target.exists() and target.parent != target:
-            target = target.parent
-        try:
-            usage = shutil.disk_usage(target)
-            self.disk_free, self.disk_total = usage.free, usage.total
-        except OSError:
-            self.disk_free = self.disk_total = 0
-        self.disk_path = folder
+
+        def work():
+            target = Path(folder)
+            while not target.exists() and target.parent != target:
+                target = target.parent
+            return shutil.disk_usage(target)
+
+        def then(usage):
+            self._disk_pending = False
+            self.disk_free, self.disk_total = (usage.free, usage.total) if usage else (0, 0)
+            self.disk_path = folder
+        self._disk(work, then)
 
     def _refresh_record_dir(self) -> None:
         def cb(ok, d, _s):
@@ -789,9 +819,9 @@ class InstanceController(QObject):
                 self.rec_path = ""
                 self._watch_remux(d.get("outputPath") or "")
                 self._start_remux_tracking(d.get("outputPath") or "")
-                if self._close_after_stop:
+                if self._close_after_stop:   # éteinte pendant le rec : après la conversion (suivie ci-dessus)
                     self._close_after_stop = False
-                    self._close_when_converted(d.get("outputPath") or "")
+                    self.close_after_conversion()
         elif etype == "StreamStateChanged":
             self.streaming = d.get("outputActive", False)
             if d.get("outputState", "").endswith("STARTED"):
@@ -855,13 +885,10 @@ class InstanceController(QObject):
         if not (path.lower().endswith(".mkv") and self.settings.get("auto_remux", True)):
             return
         mkv = Path(path)
-        try:
-            total = mkv.stat().st_size
-        except OSError:
-            return
         now = time.monotonic()
-        self.remux = {"mp4": mkv.with_suffix(".mp4"), "total": total, "progress": 0.0, "size": -1,
-                      "changed": now, "since": now, "window_seen": False}
+        r = self.remux = {"mp4": mkv.with_suffix(".mp4"), "total": 0, "progress": 0.0, "size": -1,
+                          "changed": now, "since": now, "window_seen": False, "polling": False}
+        self._disk(lambda: mkv.stat().st_size, lambda total: r.update(total=total or 0))
         self._remux_track.start()
         self.changed.emit()
 
@@ -871,51 +898,74 @@ class InstanceController(QObject):
             self._remux_track.stop()
             return
         now = time.monotonic()
-        try:
-            size = r["mp4"].stat().st_size
-        except OSError:
-            size = 0
+        # Lecture précédente encore en cours (disque saturé) : on ne peut pas conclure que c'est fini.
+        reading = bool(r.get("polling"))
+        if not reading:   # taille du MP4 lue hors de l'interface, une lecture à la fois
+            r["polling"] = True
+            self._disk(lambda: r["mp4"].stat().st_size, lambda size: self._remux_size(r, size))
         try:
             window = bool(self.proc) and winapi.has_window(self.proc.pid, obsfiles.remux_titles())
         except Exception:
             window = False
         r["window_seen"] |= window
-        if size != r["size"]:
-            r["size"], r["changed"] = size, now
         # Fenêtre de conversion d'OBS ouverte, ou fichier qui grossit encore (fenêtre pas trouvée) ;
         # au début, on laisse quelques secondes à OBS pour lancer la conversion.
-        converting = window or now - r["changed"] < 1.5 or (not r["window_seen"] and now - r["since"] < 4)
+        converting = (window or reading or now - r["changed"] < 1.5
+                      or (not r["window_seen"] and now - r["since"] < 4))
         if not converting or now - r["since"] > 3600:
             self.remux = None
             self._remux_track.stop()
             self.changed.emit()
-            return
-        progress = min(0.99, size / r["total"]) if r["total"] else 0.0
-        if progress - r["progress"] >= 0.005:
-            r["progress"] = progress
-            self.changed.emit()
+            if self.close_after_remux:   # éteinte pendant la conversion : c'est le moment
+                self.close_after_remux = False
+                if not self.shutdown_gracefully():
+                    self.kill()
+
+    def _remux_size(self, r: dict, size: int | None) -> None:
+        """Taille du MP4 lue (hors de l'interface) : avancement mis à jour aussitôt."""
+        r["polling"] = False
+        size = size or 0
+        if size != r["size"]:
+            r["size"], r["changed"] = size, time.monotonic()
+        if self.remux is r and r["total"]:
+            progress = min(0.99, size / r["total"]) if size > 0 else 0.0
+            if progress - r["progress"] >= 0.005:
+                r["progress"] = progress
+                self.changed.emit()
 
     def _check_remux(self) -> None:
-        keep = []
-        for w in self._remux_watch:
-            if time.monotonic() - w["since"] > 3600 or not w["mkv"].exists():
-                continue
-            try:
-                size = w["mp4"].stat().st_size
-                mkv_size = w["mkv"].stat().st_size
-            except OSError:
-                keep.append(w)
-                continue
-            w["stable"] = w["stable"] + 1 if size == w["size"] and size > 0 else 0
-            w["size"] = size
-            # MP4 qui ne grossit plus depuis ~6 s et de taille cohérente : conversion terminée.
-            if w["stable"] >= 2 and size >= 0.9 * mkv_size:
-                winapi.send_to_recycle_bin(str(w["mkv"]))
-            else:
-                keep.append(w)
-        self._remux_watch = keep
-        if not keep:
-            self._remux_timer.stop()
+        if self._remux_checking:   # vérification précédente pas finie (disque lent)
+            return
+        self._remux_checking = True
+        watch = list(self._remux_watch)
+
+        def work():
+            keep = []
+            for w in watch:
+                if time.monotonic() - w["since"] > 3600 or not w["mkv"].exists():
+                    continue
+                try:
+                    size = w["mp4"].stat().st_size
+                    mkv_size = w["mkv"].stat().st_size
+                except OSError:
+                    keep.append(w)
+                    continue
+                w["stable"] = w["stable"] + 1 if size == w["size"] and size > 0 else 0
+                w["size"] = size
+                # MP4 qui ne grossit plus depuis ~6 s et de taille cohérente : conversion terminée.
+                if w["stable"] >= 2 and size >= 0.9 * mkv_size:
+                    winapi.send_to_recycle_bin(str(w["mkv"]))
+                else:
+                    keep.append(w)
+            return keep
+
+        def then(keep):
+            self._remux_checking = False
+            added = [w for w in self._remux_watch if w not in watch]   # arrivés pendant la vérification
+            self._remux_watch = (watch if keep is None else keep) + added
+            if not self._remux_watch:
+                self._remux_timer.stop()
+        self._disk(work, then)
 
     def _on_meters(self, inputs: list) -> None:
         order = []

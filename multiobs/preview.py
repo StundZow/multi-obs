@@ -88,6 +88,8 @@ class PreviewWorker(QObject):
         self.ui_pending = False        # écrit aussi par le thread de l'interface (simple booléen)
         self.ui_pending_since = 0.0
         self._interval = 0
+        self._period = 0.0             # période exacte des demandes (s) et heure de la prochaine
+        self._next_due = 0.0
         self._note = ""
         self._frames = 0
         self._fps_since = time.monotonic()
@@ -98,7 +100,7 @@ class PreviewWorker(QObject):
     # ------------------------------------------------------------------ #
     @Slot()
     def init(self) -> None:
-        self.tick = QTimer(self, timeout=self._tick)
+        self.tick = QTimer(self, timeout=self._tick, singleShot=True)   # relancé à chaque demande
         self.retry = QTimer(self, interval=1500, timeout=self._retry)
         self.meta = QTimer(self, interval=10000, timeout=self._refresh_meta)
         self.recover = QTimer(self, interval=5000, timeout=self._recover)
@@ -192,15 +194,20 @@ class PreviewWorker(QObject):
         if fps <= 0:
             self.tick.stop()
             self.meta.stop()
-            self._interval = 0
+            self._interval, self._period = 0, 0.0
         else:
-            interval = max(1, int(1000 / fps))
+            # Période exacte (16,67 ms à 60 i/s) : arrondie à 16 ms, les demandes allaient plus vite
+            # qu'OBS et une sur 25 retombait sur l'image déjà reçue (sautée : à-coup de 33 ms).
+            period = 1 / fps
             if self.static_interval:
-                interval = max(interval, self.static_interval)
-            if interval != self._interval or not self.tick.isActive():
+                period = max(period, self.static_interval / 1000)
+            interval = max(1, round(period * 1000))
+            if period != self._period or not self.tick.isActive():
                 # Minuterie précise seulement quand c'est nécessaire (elle réveille plus souvent).
                 self.tick.setTimerType(Qt.TimerType.PreciseTimer if interval < 50
                                        else Qt.TimerType.CoarseTimer)
+                self._period = period
+                self._next_due = time.monotonic() + period
                 self.tick.start(interval)
                 self._interval = interval
             if not self.meta.isActive():
@@ -312,9 +319,14 @@ class PreviewWorker(QObject):
         return w, max(16, round(w * bh / bw))
 
     def _tick(self) -> None:
+        if not self._period:   # aperçu arrêté entre-temps
+            return
+        # Prochaine demande à l'heure exacte (période fractionnaire) ; en retard, on repart de maintenant.
+        now = time.monotonic()
+        self._next_due = max(self._next_due + self._period, now)
+        self.tick.start(max(0, round((self._next_due - now) * 1000)))
         if not (self.active and self.ws and self.ws.ready and self.obs_ready and self.scene):
             return
-        now = time.monotonic()
         if self.ui_pending and now - self.ui_pending_since < UI_ACK_TIMEOUT_S:
             return  # l'interface n'a pas encore affiché la précédente : inutile d'en préparer une autre
         max_in_flight = 2 if self.rtt > 0.8 * self._interval / 1000 else 1
@@ -354,6 +366,10 @@ class PreviewWorker(QObject):
         crc = zlib.crc32(data)
         if crc == self.last_crc:
             self.static_count += 1
+            if self.static_count == 1 and not self.static_interval:
+                # Image d'OBS déjà reçue : la demande est tombée juste avant la suivante. On décale les
+                # demandes d'une demi-image, loin de ce moment, pour ne pas retomber dessus.
+                self._next_due += self._period / 2
             if self.static_count >= STATIC_AFTER:
                 base = max(1, int(1000 / max(self.effective_fps(), 1)))
                 new = min(STATIC_MAX_INTERVAL_MS, max(base * 2, self.static_interval * 2))

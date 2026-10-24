@@ -25,6 +25,29 @@ DROP_WARN_CHOICES = [1, 2, 3, 5, 10, 20, 30, 50, 100]
 LOW_DISK_CHOICES = [2, 5, 10, 20, 50, 100]
 
 
+def ask_conversions(parent, converting) -> str | None:
+    """Instances qui convertissent encore leur rec en MP4 : « wait » (les éteindre à la fin de la conversion),
+    « now » (tout de suite : le MP4 ne sera pas fini, le MKV reste complet) ou None (annuler)."""
+    one = len(converting) == 1
+    lines = "\n".join(f"• {c.inst.name} : {int((c.remux_progress or 0) * 100)} %" for c in converting)
+    box = QMessageBox(QMessageBox.Icon.Warning, "Conversion en MP4 en cours",
+                      ("Cette instance convertit" if one else "Ces instances convertissent")
+                      + " encore l'enregistrement en MP4 :\n" + lines
+                      + ("\n\nÉteinte" if one else "\n\nÉteintes") + " maintenant, le MP4 ne serait pas fini "
+                      "(le MKV, lui, est complet).", parent=parent)
+    wait = box.addButton("Éteindre à la fin de la conversion", QMessageBox.ButtonRole.AcceptRole)
+    now = box.addButton("Éteindre maintenant", QMessageBox.ButtonRole.DestructiveRole)
+    box.addButton("Annuler", QMessageBox.ButtonRole.RejectRole)
+    box.setDefaultButton(wait)
+    box.exec()
+    clicked = box.clickedButton()
+    if clicked is wait:
+        return "wait"
+    if clicked is now:
+        return "now"
+    return None
+
+
 class StepSlider(QWidget):
     """Curseur à crans sur une liste de valeurs, la valeur choisie écrite à droite."""
 
@@ -325,11 +348,12 @@ class SettingsDialog(QDialog):
                                      "« au-dessus de la normale » : 0 à 0,1 % d'images perdues dans nos tests,\n"
                                      "contre 9 à 14 % sans. Un autre choix fait dans OBS (Paramètres → Avancé) "
                                      "est respecté.")
-        self.obs_unthrottle = QCheckBox("Empêcher Windows de ralentir les OBS en arrière-plan (conseillé)")
+        self.obs_unthrottle = QCheckBox("Empêcher Windows de ralentir les OBS et Multi OBS en arrière-plan (conseillé)")
         self.obs_unthrottle.setChecked(bool(manager.settings.get("obs_unthrottle", True)))
-        self.obs_unthrottle.setToolTip("Windows 11 bride les programmes réduits ou en arrière-plan : OBS rendait "
-                                       "alors chaque image jusqu'à 15 ms en retard\n(petites saccades dans le rec). "
-                                       "Débridés, les OBS restent à moins de 2 ms.")
+        self.obs_unthrottle.setToolTip("Windows 11 bride les programmes réduits ou en arrière-plan (derrière un jeu, "
+                                       "par exemple) :\nOBS rendait alors chaque image jusqu'à 15 ms en retard "
+                                       "(petites saccades dans le rec), et les aperçus de Multi OBS saccadaient.\n"
+                                       "Débridés, les OBS restent à moins de 2 ms et les aperçus restent fluides.")
         gl.addWidget(self.obs_priority)
         gl.addWidget(self.obs_unthrottle)
         safe.addWidget(g)
@@ -407,6 +431,11 @@ class SettingsDialog(QDialog):
         self.bg_fps.setToolTip("Quand une autre appli est au premier plan. Fenêtre réduite, session "
                                "verrouillée ou écran éteint : les aperçus sont toujours en pause.")
         form.addRow("Quand Multi OBS est en arrière-plan", self.bg_fps)
+        self.live_color = ColorPicker(manager.settings.get("live_color", "purple"))
+        live_label = QLabel("Couleur du live")
+        live_label.setToolTip("Pastille « LIVE » avec la durée du live, en haut à gauche de l'aperçu, et étiquette "
+                              "« LIVE » à côté du nom de l'instance.\nLe rec reste en rouge.")
+        form.addRow(live_label, self.live_color)
         perf = QLabel("Aperçu sans compression, jamais plus de pixels que l'écran n'en affiche. "
                       "Pause automatique quand il ne sert à rien, et ralenti tout seul si OBS perd des "
                       "images. En 1/1 sur un grand aperçu, compte une dizaine d'images/s par instance.")
@@ -718,6 +747,7 @@ class SettingsDialog(QDialog):
         s["on_close"] = self.on_close.currentData()
         s["check_updates"] = self.check_updates.isChecked()
         s["trash_mkv_after_remux"] = self.trash_mkv.isChecked()
+        s["live_color"] = self.live_color.value
         s["silence_warn_s"] = self.silence.value()
         s["drop_warn_frames"] = self.drop_warn.value()
         s["low_disk_gb"] = self.low_disk.value()
@@ -727,7 +757,7 @@ class SettingsDialog(QDialog):
         s["obs_unthrottle"] = self.obs_unthrottle.isChecked()
         for c in self.manager.controllers.values():
             c.apply_priority()
-            c.apply_throttle()
+        self.manager.apply_unthrottle()
         self._save_types()
         self.manager.set_naming(template=self.template.text().strip())  # enregistre + applique
         self.hotkeysChanged.emit()

@@ -376,13 +376,15 @@ class RemuxBar(QWidget):
         super().__init__(parent)
         self.progress = 0.0
         self.target = ""
+        self.then_off = False
         self.track = QColor(YAMI["grey4"])
         self.setFixedHeight(38)
         self.setToolTip("OBS convertit l'enregistrement en MP4 (sa fenêtre de conversion est derrière)")
 
-    def set_state(self, progress: float, target: str) -> None:
-        if (int(progress * 100), target) != (int(self.progress * 100), self.target):
-            self.progress, self.target = progress, target
+    def set_state(self, progress: float, target: str, then_off: bool = False) -> None:
+        """then_off : l'instance s'éteindra à la fin de la conversion (écrit sur la barre)."""
+        if (int(progress * 100), target, then_off) != (int(self.progress * 100), self.target, self.then_off):
+            self.progress, self.target, self.then_off = progress, target, then_off
             self.update()
 
     def paintEvent(self, _e):
@@ -406,7 +408,8 @@ class RemuxBar(QWidget):
         f.setBold(True)
         p.setFont(f)
         p.setPen(QColor(YAMI["white1"]))
-        p.drawText(bar, Qt.AlignmentFlag.AlignCenter, f"Conversion en MP4  ·  {int(self.progress * 100)} %")
+        p.drawText(bar, Qt.AlignmentFlag.AlignCenter, f"Conversion en MP4  ·  {int(self.progress * 100)} %"
+                   + ("  ·  puis extinction" if self.then_off else ""))
         if self.target:
             f.setBold(False)
             p.setFont(f)
