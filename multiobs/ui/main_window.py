@@ -3,11 +3,11 @@ import time
 
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QCloseEvent, QGuiApplication
-from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout,
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QFrame, QGridLayout, QHBoxLayout,
                                QInputDialog, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton,
                                QScrollArea, QSizePolicy, QToolButton, QVBoxLayout, QWidget)
 
-from .. import APP_NAME, APP_VERSION, applog, obsfiles, paths, vcam
+from .. import APP_NAME, APP_VERSION, applog, obsfiles, paths, vcam, winapi
 from ..controller import RESUME_GUARD_S
 from ..framesync import OP_NAMES, FrameSync
 from ..hotkeys import GlobalHotkeys
@@ -17,7 +17,7 @@ from ..remote import RemoteServer
 from ..syswatch import SystemEvents
 from .card import InstanceCard, MiniChip
 from .deck_status import DeckStatus
-from .dialogs import InstanceDialog, SettingsDialog, ask_conversions
+from .dialogs import InstanceDialog, SettingsDialog, VideoNameDialog, ask_conversions
 from .tasks import Task, run_task
 from .widgets import FlowLayout, icon
 
@@ -77,6 +77,7 @@ class MainWindow(QMainWindow):
 
         self.remote = None   # pilotage par le Stream Deck : lancé par apply_remote()
         self._close_choice = ""   # « stop » : fermeture en attente de la fin des conversions MP4
+        self._name_dialog = None  # fenêtre « Nom de la vidéo » ouverte (option du lancement de rec)
         self._quit_timer: QTimer | None = None
         self.status_obs = QLabel()
         self.status_vcam = QLabel()
@@ -323,6 +324,7 @@ class MainWindow(QMainWindow):
                 card.minimizeRequested.connect(lambda i: self._set_card_minimized(i, True))
                 card.filename_preview = (lambda i=inst.id: self.manager.filename_preview(
                     next(x for x in self.manager.instances if x.id == i)))
+                card.before_record = self.ask_video_name_then
                 self.cards[inst.id] = card
             else:
                 self.cards[inst.id].vcam_name = names.get(inst.vcam, "")
@@ -558,25 +560,58 @@ class MainWindow(QMainWindow):
         if not targets:
             return "Rien d'allumé"
         if mode == "on" or (mode == "toggle" and not any(c.recording for c in targets)):
-            starting = [c for c in targets if not c.recording]
-            for c in starting:
-                c.start_record()
-            # À l'image près : début des fichiers aligné par de courtes pauses (voir framesync.py) ;
-            # impossible pour une instance qui ne peut pas se mettre en pause.
-            aligned = [c for c in starting if not c.pause_blocked]
-            if len(aligned) >= 2:
-                self._sync_busy, self._sync_started, self._sync_op = True, time.monotonic(), "align"
-                self.framesync.align([self._sync_target(c) for c in aligned])
+            if not self.ask_video_name_then(self._start_all):
+                return "Nom de la vidéo ?"
         else:
             self._pending_pause = None
             recs = [c for c in targets if c.recording]
-            if len(recs) >= 2:       # même dernière image partout
+            if len(recs) >= 2 and self.manager.settings.get("sync_stop", True):   # même dernière image partout
                 self._stopping = {c.inst.id for c in recs}
                 self.framesync.stop([self._sync_target(c) for c in recs])
             else:
                 for c in recs:
                     c.stop_record()
         return ""
+
+    def _start_all(self) -> None:
+        starting = [c for c in self._targets() if not c.recording]
+        for c in starting:
+            c.start_record()
+        # À l'image près : début des fichiers aligné par de courtes pauses (voir framesync.py) ;
+        # impossible pour une instance qui ne peut pas se mettre en pause.
+        aligned = [c for c in starting if not c.pause_blocked]
+        if len(aligned) >= 2 and self.manager.settings.get("sync_start", True):
+            self._sync_busy, self._sync_started, self._sync_op = True, time.monotonic(), "align"
+            self.framesync.align([self._sync_target(c) for c in aligned])
+
+    def ask_video_name_then(self, start) -> bool:
+        """Option « Demander le nom de la vidéo à chaque lancement de rec » : quand rien n'enregistre encore
+        (pas pour un 2e OBS lancé à côté), la fenêtre « Nom de la vidéo » s'ouvre et start() n'est appelé
+        qu'une fois le nom validé. Renvoie False tant que la fenêtre attend (rec pas encore lancé)."""
+        if not self.manager.settings.get("ask_video_name", False) \
+                or any(c.recording for c in self.manager.controllers.values()):
+            start()
+            return True
+        if self._name_dialog is not None:   # déjà ouverte (deuxième appui) : remise devant
+            winapi.bring_to_front(int(self._name_dialog.winId()))
+            return False
+        dlg = self._name_dialog = VideoNameDialog(self.manager, self.video_edit.text())
+
+        def done(result):
+            self._name_dialog = None
+            dlg.deleteLater()
+            if result != QDialog.DialogCode.Accepted:
+                self.statusBar().showMessage("Rec annulé", 4000)
+                return
+            if dlg.name() != self.video_edit.text():
+                self.video_edit.setText(dlg.name())
+            self._apply_naming()   # le nouveau nom part vers OBS avant le rec (même connexion, dans l'ordre)
+            start()
+        dlg.finished.connect(done)
+        dlg.show()
+        # Rec lancé du Stream Deck ou d'un raccourci pendant un jeu : la fenêtre passe devant.
+        QTimer.singleShot(0, lambda: dlg.isVisible() and winapi.bring_to_front(int(dlg.winId())))
+        return False
 
     def pause_all(self, mode: str = "toggle") -> str:
         """Pause / reprise des instances liées, à l'image près ; mode toggle / on (pause) / off (reprise)."""
@@ -615,7 +650,7 @@ class MainWindow(QMainWindow):
         self._sync_op = "resume" if resume else "pause"
         targets = [self._sync_target(c) for c in todo]
         if resume:
-            self.framesync.resume(targets)
+            self.framesync.resume(targets, resync=bool(self.manager.settings.get("sync_resume", True)))
             return ""
         wait = max(c.resumed_at for c in todo) + RESUME_GUARD_S - time.monotonic()
         if wait > 0:   # OBS ignorerait une pause demandée juste après une reprise

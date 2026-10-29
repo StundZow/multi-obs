@@ -54,6 +54,7 @@ class InstanceCard(QFrame):
         super().__init__(parent)
         self.ctrl = ctrl
         self.filename_preview = None   # fourni par la fenêtre principale
+        self.before_record = None      # idem : demande le nom de la vidéo puis lance le rec (option)
         self.vcam_name = vcam_name     # « VCam Rouge » : nom de la caméra virtuelle dans Windows
         self.setObjectName("instanceCard")
         self.setMinimumWidth(420)
@@ -140,7 +141,7 @@ class InstanceCard(QFrame):
                                      "Ouvrir la fenêtre OBS de cette instance (pour régler scènes et sources)")
         self.show_btn.clicked.connect(self._show_window)
         self.rec_btn = self._button("rec.svg", "Rec", "Démarrer / arrêter l'enregistrement de cette instance")
-        self.rec_btn.clicked.connect(ctrl.toggle_record)
+        self.rec_btn.clicked.connect(self._rec_clicked)
         self.pause_btn = self._button("pause.svg", "Pause", "Mettre en pause / reprendre l'enregistrement")
         self.pause_btn.clicked.connect(self._pause_clicked)
         self.folder_btn = QToolButton(objectName="flatIcon")
@@ -283,6 +284,12 @@ class InstanceCard(QFrame):
                 self.ctrl.kill()
         else:
             self.launchRequested.emit(self.ctrl.inst.id)
+
+    def _rec_clicked(self) -> None:
+        if self.ctrl.recording or self.before_record is None:
+            self.ctrl.toggle_record()
+        else:
+            self.before_record(self.ctrl.start_record)
 
     def _pause_clicked(self) -> None:
         if self.ctrl.pause_blocked and not self.ctrl.paused:

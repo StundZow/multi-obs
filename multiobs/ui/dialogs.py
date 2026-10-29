@@ -25,6 +25,43 @@ DROP_WARN_CHOICES = [1, 2, 3, 5, 10, 20, 30, 50, 100]
 LOW_DISK_CHOICES = [2, 5, 10, 20, 50, 100]
 
 
+class VideoNameDialog(QDialog):
+    """Nom de la vidéo demandé au lancement d'un rec (option : on oublie de le changer d'une vidéo à l'autre).
+    Fenêtre à part, toujours devant : visible même si Multi OBS est réduit (rec lancé du Stream Deck)."""
+
+    def __init__(self, manager, current: str):
+        super().__init__(None)
+        self.manager = manager
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        lay = _base_dialog(self, "Nom de la vidéo")
+        lay.addWidget(QLabel("Nom de la vidéo pour ce rec :"))
+        self.edit = QLineEdit(current)
+        self.edit.setPlaceholderText("nom de la vidéo")
+        self.edit.setMinimumWidth(420)
+        self.edit.selectAll()   # taper remplace l'ancien nom
+        lay.addWidget(self.edit)
+        self.preview = QLabel()
+        self.preview.setProperty("muted", True)
+        lay.addWidget(self.preview)
+        buttons = QDialogButtonBox()
+        go = buttons.addButton("Lancer le rec", QDialogButtonBox.ButtonRole.AcceptRole)
+        buttons.addButton("Annuler", QDialogButtonBox.ButtonRole.RejectRole)
+        go.setDefault(True)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        lay.addWidget(buttons)
+        self.edit.textChanged.connect(self._refresh)
+        self._refresh()
+
+    def _refresh(self) -> None:
+        s = self.manager.settings
+        self.preview.setText("output : " + naming.preview(s.get("filename_template"), self.manager.creator(),
+                                                          "cam", self.name()))
+
+    def name(self) -> str:
+        return self.edit.text().strip()
+
+
 def ask_conversions(parent, converting) -> str | None:
     """Instances qui convertissent encore leur rec en MP4 : « wait » (les éteindre à la fin de la conversion),
     « now » (tout de suite : le MP4 ne sera pas fini, le MKV reste complet) ou None (annuler)."""
@@ -385,6 +422,38 @@ class SettingsDialog(QDialog):
         gl.addWidget(self.trash_mkv)
         self.auto_remux.toggled.connect(self.trash_mkv.setEnabled)
         self.trash_mkv.setEnabled(self.auto_remux.isChecked())
+        self.ask_video_name = QCheckBox("Demander le nom de la vidéo à chaque lancement de rec")
+        self.ask_video_name.setChecked(bool(manager.settings.get("ask_video_name", False)))
+        self.ask_video_name.setToolTip("Au lancement d'un rec (Tout enregistrer, Rec d'une carte, Stream Deck, "
+                                       "raccourci), une petite fenêtre propose le nom de la vidéo à changer.\n"
+                                       "Pas redemandé pour un OBS lancé pendant qu'un autre enregistre déjà.")
+        gl.addWidget(self.ask_video_name)
+        recs.addWidget(g)
+
+        g = QGroupBox("Synchro à l'image près")
+        gl = QVBoxLayout(g)
+        self.sync_start = QCheckBox("Aligner le départ des recs (courte pause dans la première seconde)")
+        self.sync_start.setChecked(bool(manager.settings.get("sync_start", True)))
+        self.sync_start.setToolTip("Chaque OBS démarre son rec quand il peut (jusqu'à 16 images d'écart mesurées).\n"
+                                   "Juste après le départ, les OBS en avance font une courte pause pour que tous les "
+                                   "fichiers commencent sur la même image.\nLe début de chaque fichier a alors un petit "
+                                   "saut (0,1 s) : attends une seconde avant de parler.")
+        self.sync_stop = QCheckBox("Finir tous les recs sur la même image")
+        self.sync_stop.setChecked(bool(manager.settings.get("sync_stop", True)))
+        self.sync_stop.setToolTip("« Tout arrêter » coupe chaque OBS à la même image du fichier : même nombre "
+                                  "d'images partout.")
+        self.sync_resume = QCheckBox("Recaler les fichiers à chaque reprise après une pause")
+        self.sync_resume.setChecked(bool(manager.settings.get("sync_resume", True)))
+        self.sync_resume.setToolTip("Si un fichier a pris quelques images d'écart (images sautées par un OBS "
+                                    "surchargé…), il est rattrapé pendant la pause,\nsans coupure de plus. "
+                                    "Au plus un quart de seconde.")
+        for box in (self.sync_start, self.sync_stop, self.sync_resume):
+            gl.addWidget(box)
+        note = QLabel("Avec « Tout enregistrer », « Tout en pause » et « Tout arrêter ». La pause, elle, est "
+                      "toujours faite à la même image partout.")
+        note.setWordWrap(True)
+        note.setProperty("muted", True)
+        gl.addWidget(note)
         recs.addWidget(g)
 
         g = QGroupBox("Types d'enregistrement")
@@ -748,6 +817,10 @@ class SettingsDialog(QDialog):
         s["check_updates"] = self.check_updates.isChecked()
         s["trash_mkv_after_remux"] = self.trash_mkv.isChecked()
         s["live_color"] = self.live_color.value
+        s["ask_video_name"] = self.ask_video_name.isChecked()
+        s["sync_start"] = self.sync_start.isChecked()
+        s["sync_stop"] = self.sync_stop.isChecked()
+        s["sync_resume"] = self.sync_resume.isChecked()
         s["silence_warn_s"] = self.silence.value()
         s["drop_warn_frames"] = self.drop_warn.value()
         s["low_disk_gb"] = self.low_disk.value()

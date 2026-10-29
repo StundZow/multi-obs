@@ -3,6 +3,21 @@
 Chaque version publiée avec `python release.py X.Y.Z` reprend la section correspondante :
 c'est ce texte que Multi OBS affiche quand il propose la mise à jour.
 
+## 1.1.3
+
+- **Nom de la vidéo demandé au lancement du rec** (option, désactivée par défaut : ⚙ → Enregistrements) :
+  pour ne plus oublier de le changer d'une vidéo à l'autre. Au lancement d'un rec (Tout enregistrer, Rec
+  d'une carte, Stream Deck, raccourci), une petite fenêtre propose le nom actuel, déjà sélectionné : tape
+  le nouveau, Entrée, et le rec part avec ce nom. Pas redemandé pour un OBS lancé pendant qu'un autre
+  enregistre déjà. Sur le Stream Deck, la touche affiche « Nom de la vidéo ? » et la fenêtre passe devant.
+- **Synchros automatiques désactivables** : ⚙ → Enregistrements → « Synchro à l'image près », trois cases
+  (toutes cochées par défaut) :
+  - **Aligner le départ des recs** : décochée, plus de courte pause dans la première seconde des fichiers,
+    mais les recs démarrent chacun quand ils peuvent (quelques images d'écart) ;
+  - **Finir tous les recs sur la même image** ;
+  - **Recaler les fichiers à chaque reprise après une pause**.
+  La pause elle-même reste toujours faite à la même image partout.
+
 ## 1.1.2
 
 - **Le live en violet** : la pastille « LIVE » avec la durée du live, en haut à gauche de l'aperçu, et

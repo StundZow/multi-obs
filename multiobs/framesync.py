@@ -342,8 +342,9 @@ class FrameSync(QObject):
         """targets : (id, port, mot de passe, nom) des instances qui enregistrent."""
         self._jobs.put(("pause", targets))
 
-    def resume(self, targets: list[tuple[str, int, str, str]]) -> None:
-        self._jobs.put(("resume", targets))
+    def resume(self, targets: list[tuple[str, int, str, str]], resync: bool = True) -> None:
+        """resync : recaler aussi les fichiers d'après le module (écart de quelques images rattrapé)."""
+        self._jobs.put(("resume", targets, {"resync": resync}))
 
     def align(self, targets: list[tuple[str, int, str, str]]) -> None:
         """Juste après « Tout enregistrer » : aligne le début des fichiers."""
@@ -365,13 +366,14 @@ class FrameSync(QObject):
                 continue
             if job is None:
                 break
-            op, targets = job
+            op, targets, *extra = job
+            options = extra[0] if extra else {}
             old_switch = sys.getswitchinterval()
             sys.setswitchinterval(0.0005)   # le thread reprend la main vite pendant l'opération
             run = {"pause": self._do_pause, "resume": self._do_resume, "align": self._do_align,
                    "stop": self._do_stop}[op]
             try:
-                ids, warnings = run(targets)
+                ids, warnings = run(targets, **options)
             except Exception as e:  # noqa: BLE001 — remonté à l'interface
                 ids, warnings = [], [f"synchro {OP_NAMES[op]} impossible ({e})"]
             finally:
@@ -546,7 +548,7 @@ class FrameSync(QObject):
         self.last_report = list(report.values())
         return done, warnings
 
-    def _do_resume(self, targets) -> tuple[list, list]:
+    def _do_resume(self, targets, resync: bool = True) -> tuple[list, list]:
         clients, warnings = self._connect(targets)
         names = {t[0]: t[3] for t in targets}
         for inst_id, c in clients.items():   # derniers événements reçus depuis la pause
@@ -572,8 +574,8 @@ class FrameSync(QObject):
             # ajoute ces images à la pause des instances en avance, au lieu de compter sur la « dette ».
             # Seulement de petits écarts : des recs lancés à des moments différents (une instance relancée
             # seule…) ne sont pas « décalés », on n'enlève pas des secondes aux autres.
-            st = self._vendor(clients, list(synced))
-            if all(st.get(i, {}).get("frames") for i in synced):
+            st = self._vendor(clients, list(synced)) if resync else {}   # désactivable (paramètres)
+            if st and all(st.get(i, {}).get("frames") for i in synced):
                 shifts, _spread = best_shifts({i: st[i]["origin"] for i in synced},
                                               {i: float(p["interval"]) * 1e9 for i, p in synced.items()})
                 if all(n * float(synced[i]["interval"]) <= RESYNC_MAX_S for i, n in shifts.items()):

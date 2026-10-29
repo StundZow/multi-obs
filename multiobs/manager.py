@@ -38,6 +38,11 @@ DEFAULT_SETTINGS = {
     "filename_template": naming.DEFAULT_TEMPLATE,
     "auto_remux": True,
     "trash_mkv_after_remux": False,
+    "ask_video_name": False,            # fenêtre « Nom de la vidéo » au lancement d'un rec
+    # Synchro à l'image près de « Tout enregistrer / Tout en pause / Tout arrêter » (paramètres → Enregistrements)
+    "sync_start": True,                 # départ aligné (courte pause dans la première seconde)
+    "sync_stop": True,                  # tous les recs finis sur la même image
+    "sync_resume": True,                # fichiers recalés à chaque reprise après une pause
     "remote_enabled": True,             # pilotage par le plugin Stream Deck (serveur local, 127.0.0.1)
     # SafeGuard (onglet des paramètres) : surveillance des recs et des lives
     "silence_warn_s": 120,              # « Pas de son » après ce silence (0 : jamais)

@@ -354,7 +354,8 @@ class RemoteServer(QObject):
             return None
         if action == "record":
             if mode == "on" or (mode == "toggle" and not c.recording):
-                c.start_record()
+                if not w.ask_video_name_then(c.start_record):   # option : nom de la vidéo demandé d'abord
+                    return "Nom de la vidéo ?"
             else:
                 c.stop_record()
             return ""
